@@ -1,0 +1,412 @@
+name: Create and Run CloudBees Unify Release
+description: Creates a CloudBees Unify release from component artifacts, runs it, and reports results
+
+inputs:
+  cb_api_token:
+    description: CloudBees API token for authentication
+    required: true
+  cb_org_id:
+    description: CloudBees organization ID
+    required: true
+  cb_application_id:
+    description: CloudBees application ID
+    required: true
+  cb_workflow_id:
+    description: CloudBees workflow/automation ID for the release
+    required: true
+  cb_base_url:
+    description: CloudBees API base URL
+    required: false
+    default: "https://api.cloudbees.io"
+  cb_environment:
+    description: Target environment name for the release
+    required: true
+  cb_artifact_label:
+    description: Optional Unify artifact label to filter artifacts (e.g. "demo", "prod")
+    required: false
+    default: ""
+  override_component_id:
+    description: Optional component ID to override with specific version
+    required: false
+    default: ""
+  override_version:
+    description: Optional version to use for overridden component
+    required: false
+    default: ""
+  release_name_prefix:
+    description: Prefix for auto-generated release name
+    required: false
+    default: "unify-release"
+  max_wait_attempts:
+    description: Maximum polling attempts to wait for release completion
+    required: false
+    default: "60"
+  wait_sleep_seconds:
+    description: Seconds to sleep between polling attempts
+    required: false
+    default: "10"
+
+outputs:
+  manifest:
+    description: Generated manifest JSON with component artifact versions
+    value: ${{ steps.build-manifest.outputs.manifest }}
+  release_id:
+    description: Created release ID
+    value: ${{ steps.create-release.outputs.release_id }}
+  release_name:
+    description: Created release name
+    value: ${{ steps.create-release.outputs.release_name }}
+  run_id:
+    description: Automation run ID from the release execution
+    value: ${{ steps.wait-release.outputs.run_id }}
+  status:
+    description: Final release status (SUCCEEDED, FAILED, TIMEOUT)
+    value: ${{ steps.report-result.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    # Step 1: Build manifest from most recent artifacts per component
+    - name: Build manifest from most recent artifacts per component
+      id: build-manifest
+      uses: docker://badouralix/curl-jq-yq:latest
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_ORG_ID: ${{ inputs.cb_org_id }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ARTIFACT_LABEL: ${{ inputs.cb_artifact_label }}
+        OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
+        OVERRIDE_VERSION: ${{ inputs.override_version }}
+      shell: sh
+      run: |
+        set -eu
+
+        echo "Fetching application service to get linked components..."
+        curl -sS \
+          "${CB_BASE_URL}/v1/organizations/${CB_ORG_ID}/services/${CB_APPLICATION_ID}" \
+          -H "Authorization: Bearer ${CB_API_TOKEN}" \
+          -H "Content-Type: application/json" \
+          > service.json
+
+        echo "Linked component IDs for application:"
+        jq '.service.linkedComponentIds' service.json
+
+        # Extract component IDs into a simple list
+        jq -r '.service.linkedComponentIds[]' service.json > components.txt
+
+        if [ ! -s components.txt ]; then
+          echo "ERROR: No linkedComponentIds found for application ${CB_APPLICATION_ID}"
+          cat service.json
+          exit 1
+        fi
+
+        # We'll collect one JSON object per component here:
+        : > artifacts_raw.json
+
+        # Loop over each component and pick the most recent non-"latest" artifact
+        while read -r COMPONENT_ID; do
+          echo "----------------------------------------"
+          echo "Processing component: ${COMPONENT_ID}"
+
+          QUERY="filter.latestOnly=false"
+          if [ -n "${CB_ARTIFACT_LABEL}" ]; then
+            QUERY="${QUERY}&filter.labels=${CB_ARTIFACT_LABEL}"
+          fi
+
+          curl -sS \
+            "${CB_BASE_URL}/v3/components/${COMPONENT_ID}/artifactinfos?${QUERY}" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            > "artifacts-${COMPONENT_ID}.json"
+
+          echo "Artifacts for component ${COMPONENT_ID} (debug):"
+          jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
+
+          # For this component:
+          #  - ignore entries where version == "latest"
+          #  - sort remaining by audit.when
+          #  - pick the last (most recent)
+          BEST=$(jq '
+            .artifacts
+            | map(select(.version != "latest"))
+            | if length == 0 then
+                empty
+              else
+                sort_by(.audit.when)
+                | last
+                | {
+                    componentId: .resourceId,
+                    artifactName: .name,
+                    version: .version
+                  }
+              end
+          ' "artifacts-${COMPONENT_ID}.json")
+
+          if [ -z "${BEST}" ]; then
+            echo "No non-\"latest\" artifact found for component ${COMPONENT_ID}, skipping it."
+            continue
+          fi
+
+          # Apply override if configured for this component
+          if [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
+            echo "Applying override version ${OVERRIDE_VERSION} for component ${COMPONENT_ID}"
+            BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION}" '.version = $v')
+          fi
+
+          echo "Chosen artifact for component ${COMPONENT_ID}:"
+          echo "${BEST}"
+
+          # Append as one JSON object per line
+          printf '%s\n' "${BEST}" >> artifacts_raw.json
+
+        done < components.txt
+
+        if [ ! -s artifacts_raw.json ]; then
+          echo "ERROR: No usable artifacts found for any linked component."
+          exit 1
+        fi
+
+        # Turn the line-delimited JSON objects into the manifest structure
+        jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
+
+        echo "Generated manifest.json (per-component, concrete versions only, with optional override):"
+        cat manifest.json
+        echo
+
+        # Export manifest as output
+        echo "manifest=$(cat manifest.json | jq -c .)" >> $GITHUB_OUTPUT
+
+    # Step 2: Create application release via API
+    - name: Create application release via API
+      id: create-release
+      uses: docker://curlimages/curl:8.8.0
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_WORKFLOW_ID: ${{ inputs.cb_workflow_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ENVIRONMENT: ${{ inputs.cb_environment }}
+        RELEASE_NAME_PREFIX: ${{ inputs.release_name_prefix }}
+      shell: sh
+      run: |
+        set -eu
+        RELEASE_NAME="${RELEASE_NAME_PREFIX}-$(date -u +%Y%m%d-%H%M%S)"
+
+        if [ ! -f manifest.json ]; then
+          echo "ERROR: manifest.json not found – did the Build manifest step run?"
+          exit 1
+        fi
+
+        echo "Using manifest.json:"
+        cat manifest.json
+        echo
+
+        cat > body.json <<EOF
+        {
+          "releaseName": "${RELEASE_NAME}",
+          "automationId": "${CB_WORKFLOW_ID}",
+          "manifest": $(cat manifest.json),
+          "inputs": {
+            "environment": "${CB_ENVIRONMENT}"
+          }
+        }
+        EOF
+
+        echo "Creating release '${RELEASE_NAME}' for application ${CB_APPLICATION_ID}"
+        echo "Request body:"
+        cat body.json
+        echo
+
+        RESPONSE=$(curl -sS -X POST \
+          "${CB_BASE_URL}/v2/applications/${CB_APPLICATION_ID}/releases" \
+          -H "Authorization: Bearer ${CB_API_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d @body.json
+        )
+
+        echo "Raw response:"
+        echo "${RESPONSE}"
+
+        RELEASE_ID=$(printf '%s' "${RESPONSE}" \
+          | grep -Eo '"releaseId"\s*:\s*"[^"]*"' \
+          | head -n1 \
+          | sed 's/.*"releaseId"\s*:\s*"\([^"]*\)".*/\1/')
+
+        if [ -z "${RELEASE_ID}" ]; then
+          echo "ERROR: Could not extract releaseId from response"
+          exit 1
+        fi
+
+        echo "Created release id: ${RELEASE_ID}"
+        echo "${RELEASE_ID}" > release_id.txt
+        echo "${RELEASE_NAME}" > release_name.txt
+
+        # Export outputs
+        echo "release_id=${RELEASE_ID}" >> $GITHUB_OUTPUT
+        echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+
+    # Step 3: Start the release (run workflow)
+    - name: Start release (run workflow)
+      id: start-release
+      uses: docker://curlimages/curl:8.8.0
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+      shell: sh
+      run: |
+        set -eu
+        RELEASE_ID=$(cat release_id.txt)
+        echo "Starting release ${RELEASE_ID}"
+
+        RESPONSE=$(curl -sS -X POST \
+          "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases/${RELEASE_ID}/run" \
+          -H "Authorization: Bearer ${CB_API_TOKEN}" \
+          -H "Content-Type: application/json"
+        )
+
+        echo "Run response:"
+        echo "${RESPONSE}"
+
+    # Step 4: Wait for release workflow run to complete (poll automation run)
+    - name: Wait for release workflow run to complete
+      id: wait-release
+      uses: docker://curlimages/curl:8.8.0
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        MAX_ATTEMPTS: ${{ inputs.max_wait_attempts }}
+        SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
+      shell: sh
+      run: |
+        set -eu
+        RELEASE_ID=$(cat release_id.txt)
+        echo "Waiting for workflow run for release ${RELEASE_ID} to complete..."
+
+        attempt=1
+        LAST_RUN_STATUS="UNKNOWN"
+        RUN_ID=""
+
+        while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+          echo "Poll attempt ${attempt}/${MAX_ATTEMPTS} (release)..."
+          RELEASE_RESP=$(curl -sS \
+            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases/${RELEASE_ID}" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json"
+          )
+
+          echo "Release status response:"
+          echo "${RELEASE_RESP}"
+
+          ORG_ID=$(printf '%s' "${RELEASE_RESP}" \
+            | grep -Eo '"organizationId"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"organizationId"\s*:\s*"\([^"]*\)".*/\1/')
+
+          SERVICE_ID=$(printf '%s' "${RELEASE_RESP}" \
+            | grep -Eo '"componentId"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"componentId"\s*:\s*"\([^"]*\)".*/\1/')
+
+          AUTO_ID=$(printf '%s' "${RELEASE_RESP}" \
+            | grep -Eo '"automationId"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"automationId"\s*:\s*"\([^"]*\)".*/\1/')
+
+          RUN_ID=$(printf '%s' "${RELEASE_RESP}" \
+            | grep -Eo '"runId"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"runId"\s*:\s*"\([^"]*\)".*/\1/')
+
+          if [ -z "${RUN_ID}" ] || [ -z "${ORG_ID}" ] || [ -z "${SERVICE_ID}" ] || [ -z "${AUTO_ID}" ]; then
+            echo "No automation run info yet – sleeping ${SLEEP_SECONDS}s..."
+            sleep "${SLEEP_SECONDS}"
+            attempt=$((attempt + 1))
+            continue
+          fi
+
+          echo "Found automation run: org=${ORG_ID}, service=${SERVICE_ID}, automation=${AUTO_ID}, runId=${RUN_ID}"
+          echo "Polling automation run status..."
+
+          RUN_RESP=$(curl -sS \
+            "${CB_BASE_URL}/v1/organizations/${ORG_ID}/services/${SERVICE_ID}/automations/${AUTO_ID}/runs/${RUN_ID}" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json"
+          )
+
+          echo "Automation run response:"
+          echo "${RUN_RESP}"
+
+          RUN_STATUS=$(printf '%s' "${RUN_RESP}" \
+            | grep -Eo '"status"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"status"\s*:\s*"\([^"]*\)".*/\1/')
+
+          LAST_RUN_STATUS="${RUN_STATUS}"
+          echo "Current automation run status: ${RUN_STATUS}"
+
+          RUN_STATUS_UPPER=$(printf '%s' "${RUN_STATUS}" | tr '[:lower:]' '[:upper:]')
+
+          case "${RUN_STATUS_UPPER}" in
+            "SUCCEEDED"|"SUCCESS")
+              echo "Automation run completed successfully."
+              echo "${RUN_STATUS_UPPER}" > run_status.txt
+              echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+            "FAILED"|"FAILURE"|"ERROR"|"CANCELLED"|"CANCELED")
+              echo "Automation run finished with failure status: ${RUN_STATUS}"
+              echo "${RUN_STATUS_UPPER}" > run_status.txt
+              echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
+              exit 0
+              ;;
+            *)
+              echo "Automation run still in progress (status=${RUN_STATUS}). Sleeping ${SLEEP_SECONDS}s..."
+              sleep "${SLEEP_SECONDS}"
+              attempt=$((attempt + 1))
+              ;;
+          esac
+        done
+
+        echo "Timed out waiting for automation run. Last known run status: ${LAST_RUN_STATUS}"
+        echo "TIMEOUT" > run_status.txt
+        if [ -n "${RUN_ID}" ]; then
+          echo "run_id=${RUN_ID}" >> $GITHUB_OUTPUT
+        fi
+        exit 0
+
+    # Step 5: Report final result
+    - name: Report release result
+      id: report-result
+      uses: docker://curlimages/curl:8.8.0
+      shell: sh
+      run: |
+        set -eu
+
+        if [ ! -f run_status.txt ]; then
+          echo "No run_status.txt found – something went wrong earlier."
+          exit 1
+        fi
+
+        RUN_STATUS=$(cat run_status.txt)
+        echo "Final automation run status: ${RUN_STATUS}"
+
+        # Export status output
+        echo "status=${RUN_STATUS}" >> $GITHUB_OUTPUT
+
+        case "${RUN_STATUS}" in
+          SUCCEEDED|SUCCESS)
+            echo "✅ Release workflow succeeded."
+            exit 0
+            ;;
+          TIMEOUT)
+            echo "⚠️ Release workflow did not finish in time (timeout)."
+            exit 1
+            ;;
+          *)
+            echo "❌ Release workflow failed with status: ${RUN_STATUS}"
+            exit 1
+            ;;
+        esac
