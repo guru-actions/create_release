@@ -13,7 +13,7 @@ This action:
 
 ```yaml
 - name: Create and run CloudBees Unify release
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: "8d16bd77-d506-45e6-a0f4-8884ce16d301"
@@ -67,7 +67,7 @@ jobs:
   deploy:
     steps:
       - name: Create release
-        uses: github.com/guru-actions/create_release@main
+        uses: https://github.com/guru-actions/create_release@main
         with:
           cb_api_token: ${{ secrets.CB_API_TOKEN }}
           cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -82,7 +82,7 @@ Pin a specific component to a specific version:
 
 ```yaml
 - name: Create release with component override
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -100,7 +100,7 @@ Filter artifacts by specific labels. Supports multiple labels (comma-separated) 
 **Single label:**
 ```yaml
 - name: Create production release
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -114,7 +114,7 @@ Filter artifacts by specific labels. Supports multiple labels (comma-separated) 
 **Multiple labels with key=value pairs:**
 ```yaml
 - name: Create release with multiple label filters
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -128,7 +128,7 @@ Filter artifacts by specific labels. Supports multiple labels (comma-separated) 
 **Mixed labels:**
 ```yaml
 - name: Create release with mixed labels
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -144,7 +144,7 @@ By default, the action excludes artifacts with version "latest". To include them
 
 ```yaml
 - name: Create release allowing latest versions
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -160,7 +160,7 @@ Adjust polling behavior for longer-running releases:
 
 ```yaml
 - name: Create release with extended wait time
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
@@ -178,7 +178,7 @@ Access the outputs from the action:
 ```yaml
 - name: Create release
   id: release
-  uses: github.com/guru-actions/create_release@main
+  uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
     cb_org_id: ${{ vars.CB_ORG_ID }}
