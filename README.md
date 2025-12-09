@@ -40,7 +40,7 @@ This action:
 | Input | Description | Default |
 |-------|-------------|---------|
 | `cb_base_url` | CloudBees API base URL | `https://api.cloudbees.io` |
-| `cb_artifact_label` | Optional Unify artifact label to filter artifacts (e.g., `demo`, `prod`) | `""` (empty, no filtering) |
+| `cb_artifact_labels` | Optional Unify artifact labels to filter artifacts (comma-separated, supports key=value pairs, e.g., `prod=true,stable=true` or `demo,v2`) | `""` (empty, no filtering) |
 | `override_component_id` | Optional component ID to pin to a specific version | `""` (no override) |
 | `override_version` | Optional version to use for overridden component | `""` (no override) |
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
@@ -94,8 +94,9 @@ Pin a specific component to a specific version:
 
 ### With Artifact Label Filtering
 
-Filter artifacts by a specific label (e.g., only use artifacts tagged with "prod"):
+Filter artifacts by specific labels. Supports multiple labels (comma-separated) and key=value pairs:
 
+**Single label:**
 ```yaml
 - name: Create production release
   uses: github.com/guru-actions/create_release@main
@@ -105,8 +106,35 @@ Filter artifacts by a specific label (e.g., only use artifacts tagged with "prod
     cb_application_id: ${{ vars.CB_APPLICATION_ID }}
     cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
     cb_environment: "squid-prod"
-    cb_artifact_label: "prod"
+    cb_artifact_labels: "prod"
     release_name_prefix: "prod-release"
+```
+
+**Multiple labels with key=value pairs:**
+```yaml
+- name: Create release with multiple label filters
+  uses: github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-prod"
+    cb_artifact_labels: "prod=true,stable=true,region=us-east"
+    release_name_prefix: "prod-release"
+```
+
+**Mixed labels:**
+```yaml
+- name: Create release with mixed labels
+  uses: github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-demo"
+    cb_artifact_labels: "demo,dev=true,v2"
 ```
 
 ### With Custom Wait Times

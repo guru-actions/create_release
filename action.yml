@@ -21,8 +21,8 @@ inputs:
   cb_environment:
     description: Target environment name for the release
     required: true
-  cb_artifact_label:
-    description: Optional Unify artifact label to filter artifacts (e.g. "demo", "prod")
+  cb_artifact_labels:
+    description: Optional Unify artifact labels to filter artifacts (comma-separated, supports key=value pairs, e.g. "prod=true,stable=true" or "demo,v2")
     required: false
     default: ""
   override_component_id:
@@ -75,7 +75,7 @@ runs:
         CB_ORG_ID: ${{ inputs.cb_org_id }}
         CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
         CB_BASE_URL: ${{ inputs.cb_base_url }}
-        CB_ARTIFACT_LABEL: ${{ inputs.cb_artifact_label }}
+        CB_ARTIFACT_LABELS: ${{ inputs.cb_artifact_labels }}
         OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
         OVERRIDE_VERSION: ${{ inputs.override_version }}
       shell: sh
@@ -110,8 +110,13 @@ runs:
           echo "Processing component: ${COMPONENT_ID}"
 
           QUERY="filter.latestOnly=false"
-          if [ -n "${CB_ARTIFACT_LABEL}" ]; then
-            QUERY="${QUERY}&filter.labels=${CB_ARTIFACT_LABEL}"
+          if [ -n "${CB_ARTIFACT_LABELS}" ]; then
+            # Split comma-separated labels and add each as a separate filter.labels parameter
+            # This preserves labels with = signs (e.g., "prod=true,dev=true")
+            IFS=',' read -ra LABELS <<< "${CB_ARTIFACT_LABELS}"
+            for LABEL in "${LABELS[@]}"; do
+              QUERY="${QUERY}&filter.labels=${LABEL}"
+            done
           fi
 
           curl -sS \
