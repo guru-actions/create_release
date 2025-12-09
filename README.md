@@ -41,6 +41,7 @@ This action:
 |-------|-------------|---------|
 | `cb_base_url` | CloudBees API base URL | `https://api.cloudbees.io` |
 | `cb_artifact_labels` | Optional Unify artifact labels to filter artifacts (comma-separated, supports key=value pairs, e.g., `prod=true,stable=true` or `demo,v2`) | `""` (empty, no filtering) |
+| `allow_latest_version` | Allow artifacts with version "latest" to be selected (by default, "latest" versions are excluded) | `false` |
 | `override_component_id` | Optional component ID to pin to a specific version | `""` (no override) |
 | `override_version` | Optional version to use for overridden component | `""` (no override) |
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
@@ -135,6 +136,22 @@ Filter artifacts by specific labels. Supports multiple labels (comma-separated) 
     cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
     cb_environment: "squid-demo"
     cb_artifact_labels: "demo,dev=true,v2"
+```
+
+### With "latest" Versions Allowed
+
+By default, the action excludes artifacts with version "latest". To include them:
+
+```yaml
+- name: Create release allowing latest versions
+  uses: github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-dev"
+    allow_latest_version: "true"
 ```
 
 ### With Custom Wait Times

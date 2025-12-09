@@ -25,6 +25,10 @@ inputs:
     description: Optional Unify artifact labels to filter artifacts (comma-separated, supports key=value pairs, e.g. "prod=true,stable=true" or "demo,v2")
     required: false
     default: ""
+  allow_latest_version:
+    description: Allow artifacts with version "latest" to be selected (default is to exclude "latest" versions)
+    required: false
+    default: "false"
   override_component_id:
     description: Optional component ID to override with specific version
     required: false
@@ -76,6 +80,7 @@ runs:
         CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         CB_ARTIFACT_LABELS: ${{ inputs.cb_artifact_labels }}
+        ALLOW_LATEST_VERSION: ${{ inputs.allow_latest_version }}
         OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
         OVERRIDE_VERSION: ${{ inputs.override_version }}
       shell: sh
@@ -129,27 +134,50 @@ runs:
           jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
 
           # For this component:
-          #  - ignore entries where version == "latest"
-          #  - sort remaining by audit.when
-          #  - pick the last (most recent)
-          BEST=$(jq '
-            .artifacts
-            | map(select(.version != "latest"))
-            | if length == 0 then
-                empty
-              else
-                sort_by(.audit.when)
-                | last
-                | {
-                    componentId: .resourceId,
-                    artifactName: .name,
-                    version: .version
-                  }
-              end
-          ' "artifacts-${COMPONENT_ID}.json")
+          #  - Conditionally filter out "latest" versions based on ALLOW_LATEST_VERSION
+          #  - Sort remaining by audit.when
+          #  - Pick the last (most recent)
+          if [ "${ALLOW_LATEST_VERSION}" = "true" ]; then
+            echo "Including 'latest' versions in artifact selection"
+            BEST=$(jq '
+              .artifacts
+              | if length == 0 then
+                  empty
+                else
+                  sort_by(.audit.when)
+                  | last
+                  | {
+                      componentId: .resourceId,
+                      artifactName: .name,
+                      version: .version
+                    }
+                end
+            ' "artifacts-${COMPONENT_ID}.json")
+          else
+            echo "Excluding 'latest' versions from artifact selection"
+            BEST=$(jq '
+              .artifacts
+              | map(select(.version != "latest"))
+              | if length == 0 then
+                  empty
+                else
+                  sort_by(.audit.when)
+                  | last
+                  | {
+                      componentId: .resourceId,
+                      artifactName: .name,
+                      version: .version
+                    }
+                end
+            ' "artifacts-${COMPONENT_ID}.json")
+          fi
 
           if [ -z "${BEST}" ]; then
-            echo "No non-\"latest\" artifact found for component ${COMPONENT_ID}, skipping it."
+            if [ "${ALLOW_LATEST_VERSION}" = "true" ]; then
+              echo "No artifact found for component ${COMPONENT_ID}, skipping it."
+            else
+              echo "No non-\"latest\" artifact found for component ${COMPONENT_ID}, skipping it."
+            fi
             continue
           fi
 
