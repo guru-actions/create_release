@@ -125,8 +125,12 @@ runs:
           if [ -n "${CB_ARTIFACT_LABELS}" ]; then
             # Split comma-separated labels and add each as a separate filter.labels parameter
             # This preserves labels with = signs (e.g., "prod=true,dev=true")
-            IFS=',' read -ra LABELS <<< "${CB_ARTIFACT_LABELS}"
-            for LABEL in "${LABELS[@]}"; do
+            # Using POSIX-compatible shell syntax instead of bash-specific here-string
+            OLD_IFS="$IFS"
+            IFS=','
+            set -- $CB_ARTIFACT_LABELS
+            IFS="$OLD_IFS"
+            for LABEL in "$@"; do
               QUERY="${QUERY}&filter.labels=${LABEL}"
             done
           fi
