@@ -56,6 +56,14 @@ inputs:
     required: false
     default: "10"
     description: Seconds to sleep between polling attempts
+  close_on_pass:
+    required: false
+    default: "false"
+    description: Automatically close the release if it succeeds
+  close_on_fail:
+    required: false
+    default: "false"
+    description: Automatically close the release if it fails
 
 outputs:
   manifest:
@@ -469,3 +477,68 @@ runs:
             exit 1
             ;;
         esac
+
+    # Step 6: Optionally close the release
+    - id: close-release
+      name: Close release if configured
+      uses: docker://curlimages/curl:8.8.0
+      shell: sh
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CLOSE_ON_PASS: ${{ inputs.close_on_pass }}
+        CLOSE_ON_FAIL: ${{ inputs.close_on_fail }}
+      run: |
+        set -eu
+
+        if [ ! -f run_status.txt ] || [ ! -f release_id.txt ]; then
+          echo "Missing status or release ID files - skipping close operation"
+          exit 0
+        fi
+
+        RUN_STATUS=$(cat run_status.txt)
+        RELEASE_ID=$(cat release_id.txt)
+        SHOULD_CLOSE="false"
+
+        case "${RUN_STATUS}" in
+          SUCCEEDED|SUCCESS)
+            if [ "${CLOSE_ON_PASS}" = "true" ]; then
+              echo "Release succeeded and close_on_pass is enabled"
+              SHOULD_CLOSE="true"
+            else
+              echo "Release succeeded but close_on_pass is not enabled - keeping release open"
+            fi
+            ;;
+          FAILED|FAILURE|ERROR|CANCELLED|CANCELED)
+            if [ "${CLOSE_ON_FAIL}" = "true" ]; then
+              echo "Release failed and close_on_fail is enabled"
+              SHOULD_CLOSE="true"
+            else
+              echo "Release failed but close_on_fail is not enabled - keeping release open for investigation"
+            fi
+            ;;
+          TIMEOUT)
+            if [ "${CLOSE_ON_FAIL}" = "true" ]; then
+              echo "Release timed out and close_on_fail is enabled"
+              SHOULD_CLOSE="true"
+            else
+              echo "Release timed out but close_on_fail is not enabled - keeping release open"
+            fi
+            ;;
+          *)
+            echo "Unknown status: ${RUN_STATUS} - not closing release"
+            ;;
+        esac
+
+        if [ "${SHOULD_CLOSE}" = "true" ]; then
+          echo "Closing release ${RELEASE_ID}..."
+          RESPONSE=$(curl -sS -X POST \
+            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases/${RELEASE_ID}/close" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json"
+          )
+          echo "Close response:"
+          echo "${RESPONSE}"
+          echo "✅ Release closed successfully"
+        fi

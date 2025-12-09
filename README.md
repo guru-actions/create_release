@@ -8,6 +8,7 @@ This action:
 3. Starts the release workflow
 4. Waits for the release to complete (with polling)
 5. Reports the final result
+6. Optionally closes the release based on success/failure status
 
 ## Usage
 
@@ -47,6 +48,8 @@ This action:
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
 | `max_wait_attempts` | Maximum polling attempts to wait for release completion | `60` |
 | `wait_sleep_seconds` | Seconds to sleep between polling attempts | `10` |
+| `close_on_pass` | Automatically close the release if it succeeds | `false` |
+| `close_on_fail` | Automatically close the release if it fails | `false` |
 
 ## Outputs
 
@@ -171,6 +174,40 @@ Adjust polling behavior for longer-running releases:
     wait_sleep_seconds: "10"
 ```
 
+### With Auto-Close on Success
+
+Automatically close releases after successful deployment:
+
+```yaml
+- name: Create and close release on success
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-prod"
+    close_on_pass: "true"  # Auto-close successful releases
+    close_on_fail: "false" # Keep failed releases open for investigation
+```
+
+### With Auto-Close on All Outcomes
+
+Automatically close releases regardless of success or failure:
+
+```yaml
+- name: Create release and always close
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-dev"
+    close_on_pass: "true"  # Auto-close on success
+    close_on_fail: "true"  # Auto-close on failure
+```
+
 ### Using Outputs
 
 Access the outputs from the action:
@@ -236,6 +273,13 @@ Polls the release status every 10 seconds (configurable) until:
 Reports the final status and exits:
 - Exit code `0` for `SUCCEEDED`
 - Exit code `1` for `FAILED` or `TIMEOUT`
+
+### 6. Close Release (Optional)
+
+Optionally closes the release based on configuration:
+- If `close_on_pass: "true"` and release succeeded, closes the release
+- If `close_on_fail: "true"` and release failed/timed out, closes the release
+- By default, releases remain open for manual inspection
 
 ## Requirements
 
