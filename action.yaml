@@ -532,6 +532,42 @@ runs:
         esac
 
         if [ "${SHOULD_CLOSE}" = "true" ]; then
+          echo "Waiting for release to finish processing before closing..."
+
+          # Poll until processingRequest == false to avoid distributed lock contention
+          MAX_CLOSE_WAIT=30
+          close_attempt=1
+          while [ "$close_attempt" -le "$MAX_CLOSE_WAIT" ]; do
+            echo "Checking release processing status (attempt ${close_attempt}/${MAX_CLOSE_WAIT})..."
+
+            RELEASE_CHECK=$(curl -sS \
+              "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases/${RELEASE_ID}" \
+              -H "Authorization: Bearer ${CB_API_TOKEN}" \
+              -H "Content-Type: application/json"
+            )
+
+            # Extract processingRequest field - it should be "false" (as a string)
+            PROCESSING=$(printf '%s' "${RELEASE_CHECK}" \
+              | grep -Eo '"processingRequest"\s*:\s*(true|false)' \
+              | head -n1 \
+              | sed 's/.*:\s*\(true\|false\)/\1/')
+
+            echo "processingRequest: ${PROCESSING}"
+
+            if [ "${PROCESSING}" = "false" ]; then
+              echo "Release processing complete, proceeding to close..."
+              break
+            fi
+
+            if [ "$close_attempt" -eq "$MAX_CLOSE_WAIT" ]; then
+              echo "WARNING: Release still processing after ${MAX_CLOSE_WAIT} attempts, attempting close anyway..."
+              break
+            fi
+
+            sleep 2
+            close_attempt=$((close_attempt + 1))
+          done
+
           echo "Closing release ${RELEASE_ID}..."
           RESPONSE=$(curl -sS -X POST \
             "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases/${RELEASE_ID}/close" \
