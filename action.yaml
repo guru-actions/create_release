@@ -39,11 +39,17 @@ inputs:
   override_component_id:
     required: false
     default: ""
-    description: Optional component ID to pin to a specific version
+    description: Optional component ID to pin to a specific version (deprecated - use component_overrides)
   override_version:
     required: false
     default: ""
-    description: Optional version to use for overridden component
+    description: Optional version to use for overridden component (deprecated - use component_overrides)
+  component_overrides:
+    required: false
+    default: ""
+    description: >
+      Optional component version overrides (comma-separated componentId=version pairs,
+      e.g. "097aaa38-4753-4471-97f4-8e7265bd7bdc8=1.44,abc123-def456=2.0")
   release_name_prefix:
     required: false
     default: "unify-release"
@@ -99,6 +105,7 @@ runs:
         ALLOW_LATEST_VERSION: ${{ inputs.allow_latest_version }}
         OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
         OVERRIDE_VERSION: ${{ inputs.override_version }}
+        COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
       run: |
         set -eu
 
@@ -200,10 +207,38 @@ runs:
             continue
           fi
 
-          # Apply override if configured for this component
-          if [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
-            echo "Applying override version ${OVERRIDE_VERSION} for component ${COMPONENT_ID}"
-            BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION}" '.version = $v')
+          # Apply overrides if configured for this component
+          OVERRIDE_VERSION_TO_USE=""
+
+          # Check new multi-override format first (component_overrides)
+          if [ -n "${COMPONENT_OVERRIDES}" ]; then
+            # Parse comma-separated componentId=version pairs
+            OLD_IFS="$IFS"
+            IFS=','
+            set -- $COMPONENT_OVERRIDES
+            IFS="$OLD_IFS"
+            for OVERRIDE_PAIR in "$@"; do
+              # Split on '=' to get componentId and version
+              OVERRIDE_COMP_ID="${OVERRIDE_PAIR%%=*}"
+              OVERRIDE_VER="${OVERRIDE_PAIR#*=}"
+              if [ "${COMPONENT_ID}" = "${OVERRIDE_COMP_ID}" ]; then
+                echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                OVERRIDE_VERSION_TO_USE="${OVERRIDE_VER}"
+                break
+              fi
+            done
+          fi
+
+          # Fall back to legacy single override format (backwards compatibility)
+          if [ -z "${OVERRIDE_VERSION_TO_USE}" ] && [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
+            echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            OVERRIDE_VERSION_TO_USE="${OVERRIDE_VERSION}"
+          fi
+
+          # Apply the override if found
+          if [ -n "${OVERRIDE_VERSION_TO_USE}" ]; then
+            echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION_TO_USE}" '.version = $v')
           fi
 
           echo "Chosen artifact for component ${COMPONENT_ID}:"
@@ -222,7 +257,7 @@ runs:
         # Turn the line-delimited JSON objects into the manifest structure
         jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
 
-        echo "Generated manifest.json (per-component, concrete versions only, with optional override):"
+        echo "Generated manifest.json (per-component, concrete versions only, with optional overrides):"
         cat manifest.json
         echo
 

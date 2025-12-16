@@ -43,8 +43,9 @@ This action:
 | `cb_base_url` | CloudBees API base URL | `https://api.cloudbees.io` |
 | `cb_artifact_labels` | Optional Unify artifact labels to filter artifacts (comma-separated, supports key=value pairs, e.g., `prod=true,stable=true` or `demo,v2`) | `""` (empty, no filtering) |
 | `allow_latest_version` | Allow artifacts with version "latest" to be selected (by default, "latest" versions are excluded) | `false` |
-| `override_component_id` | Optional component ID to pin to a specific version | `""` (no override) |
-| `override_version` | Optional version to use for overridden component | `""` (no override) |
+| `component_overrides` | Optional component version overrides (comma-separated `componentId=version` pairs, e.g., `097aaa38-4753-4471-97f4-8e7265bd7bdc8=1.44,abc123=2.0`) | `""` (no overrides) |
+| `override_component_id` | ⚠️ **Deprecated:** Optional component ID to pin to a specific version (use `component_overrides` instead) | `""` (no override) |
+| `override_version` | ⚠️ **Deprecated:** Optional version to use for overridden component (use `component_overrides` instead) | `""` (no override) |
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
 | `max_wait_attempts` | Maximum polling attempts to wait for release completion | `60` |
 | `wait_sleep_seconds` | Seconds to sleep between polling attempts | `10` |
@@ -79,12 +80,30 @@ jobs:
           cb_environment: "squid-demo-3"
 ```
 
-### With Component Version Override
+### With Multiple Component Version Overrides
 
-Pin a specific component to a specific version:
+Pin multiple components to specific versions using comma-separated `componentId=version` pairs:
 
 ```yaml
-- name: Create release with component override
+- name: Create release with multiple component overrides
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-preprod"
+    component_overrides: "097aaa38-4753-4471-97f4-8e7265bd7bdc8=1.44,abc123-def456-789=2.0,xyz789-012=3.5"
+```
+
+### With Single Component Version Override (Legacy)
+
+⚠️ **Deprecated:** Use `component_overrides` instead for better flexibility.
+
+Pin a single component to a specific version:
+
+```yaml
+- name: Create release with component override (legacy)
   uses: https://github.com/guru-actions/create_release@main
   with:
     cb_api_token: ${{ secrets.CB_API_TOKEN }}
