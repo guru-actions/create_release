@@ -57,6 +57,7 @@ This action:
 | Output | Description |
 |--------|-------------|
 | `manifest` | Generated manifest JSON with component artifact versions |
+| `selection_report` | Human-readable report showing component selection and overrides |
 | `release_id` | Created release ID |
 | `release_name` | Created release name (e.g., `unify-release-20231208-143022`) |
 | `run_id` | Automation run ID from the release execution |
@@ -249,6 +250,53 @@ Access the outputs from the action:
     echo "Run ID: ${{ steps.release.outputs.run_id }}"
     echo "Status: ${{ steps.release.outputs.status }}"
     echo "Manifest: ${{ steps.release.outputs.manifest }}"
+    echo ""
+    echo "Component Selection Report:"
+    echo "${{ steps.release.outputs.selection_report }}"
+```
+
+### Using Selection Report for Evidence
+
+The `selection_report` output provides a formatted report perfect for audit trails:
+
+```yaml
+- name: Create release
+  id: release
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "prod"
+    component_overrides: "comp1=1.0,comp2=2.0"
+    cb_artifact_labels: "prod=true,stable=true"
+
+- name: Save evidence report
+  run: |
+    cat > release-evidence.txt << 'EOF'
+    ${{ steps.release.outputs.selection_report }}
+    EOF
+    cat release-evidence.txt
+```
+
+**Example Report Output:**
+```
+Component Selection Report
+==========================
+
+Configuration:
+- Exclude 'latest' versions: false
+- Artifact label filters: prod=true,stable=true
+- Component overrides: comp1=1.0,comp2=2.0
+- Legacy override: none=none
+
+Components Selected:
+- gururepservice/squid-ui                           2025.11.20.1-67d3957ed97f
+- gururepservice/octopus-payments                   2025.12.11.1-e1e0acae2a62 (OVERRIDDEN)
+- gururepservice/urchin-analytics                   2025.11.10.1-3c8efeb1e313
+- gururepservice/nautilus-inventory                 2025.12.11.1-27b9b22d267c (OVERRIDDEN)
+- codlocker-assets                                  1.39
 ```
 
 ## How It Works

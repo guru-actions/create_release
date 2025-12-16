@@ -75,6 +75,9 @@ outputs:
   manifest:
     description: Generated manifest JSON with component artifact versions
     value: ${{ steps.build-manifest.outputs.manifest }}
+  selection_report:
+    description: Human-readable report of component selection and overrides
+    value: ${{ steps.build-manifest.outputs.selection_report }}
   release_id:
     description: Created release ID
     value: ${{ steps.create-release.outputs.release_id }}
@@ -130,6 +133,23 @@ runs:
 
         # We'll collect one JSON object per component here:
         : > artifacts_raw.json
+
+        # Initialize report file
+        : > selection_report.txt
+
+        # Report header
+        cat >> selection_report.txt <<REPORT_HEADER
+Component Selection Report
+==========================
+
+Configuration:
+- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}
+- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}
+- Component overrides: ${COMPONENT_OVERRIDES:-none}
+- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}
+
+Components Selected:
+REPORT_HEADER
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
@@ -236,13 +256,26 @@ runs:
           fi
 
           # Apply the override if found
+          WAS_OVERRIDDEN="false"
           if [ -n "${OVERRIDE_VERSION_TO_USE}" ]; then
             echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
             BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION_TO_USE}" '.version = $v')
+            WAS_OVERRIDDEN="true"
           fi
 
           echo "Chosen artifact for component ${COMPONENT_ID}:"
           echo "${BEST}"
+
+          # Extract artifact details for reporting
+          ARTIFACT_NAME=$(printf '%s\n' "${BEST}" | jq -r '.artifactName')
+          ARTIFACT_VERSION=$(printf '%s\n' "${BEST}" | jq -r '.version')
+
+          # Add to report
+          if [ "${WAS_OVERRIDDEN}" = "true" ]; then
+            printf "- %-50s %s (OVERRIDDEN)\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+          else
+            printf "- %-50s %s\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+          fi
 
           # Append as one JSON object per line
           printf '%s\n' "${BEST}" >> artifacts_raw.json
@@ -261,10 +294,18 @@ runs:
         cat manifest.json
         echo
 
-        # Export manifest as output (CloudBees format)
+        # Display selection report
+        echo "========================================="
+        echo "Component Selection Report:"
+        echo "========================================="
+        cat selection_report.txt
+        echo "========================================="
+
+        # Export outputs (CloudBees format)
         OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
         mkdir -p "${OUTPUTS_DIR}"
         jq -c . manifest.json > "${OUTPUTS_DIR}/manifest"
+        cat selection_report.txt > "${OUTPUTS_DIR}/selection_report"
 
     # Step 2: Create application release via API
     - id: create-release
