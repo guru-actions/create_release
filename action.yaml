@@ -39,11 +39,17 @@ inputs:
   override_component_id:
     required: false
     default: ""
-    description: Optional component ID to pin to a specific version
+    description: Optional component ID to pin to a specific version (deprecated - use component_overrides)
   override_version:
     required: false
     default: ""
-    description: Optional version to use for overridden component
+    description: Optional version to use for overridden component (deprecated - use component_overrides)
+  component_overrides:
+    required: false
+    default: ""
+    description: >
+      Optional component version overrides (comma-separated componentId=version pairs,
+      e.g. "097aaa38-4753-4471-97f4-8e7265bd7bdc8=1.44,abc123-def456=2.0")
   release_name_prefix:
     required: false
     default: "unify-release"
@@ -69,6 +75,9 @@ outputs:
   manifest:
     description: Generated manifest JSON with component artifact versions
     value: ${{ steps.build-manifest.outputs.manifest }}
+  selection_report:
+    description: Human-readable report of component selection and overrides
+    value: ${{ steps.build-manifest.outputs.selection_report }}
   release_id:
     description: Created release ID
     value: ${{ steps.create-release.outputs.release_id }}
@@ -99,6 +108,7 @@ runs:
         ALLOW_LATEST_VERSION: ${{ inputs.allow_latest_version }}
         OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
         OVERRIDE_VERSION: ${{ inputs.override_version }}
+        COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
       run: |
         set -eu
 
@@ -123,6 +133,21 @@ runs:
 
         # We'll collect one JSON object per component here:
         : > artifacts_raw.json
+
+        # Initialize report file
+        : > selection_report.txt
+
+        # Report header
+        echo "Component Selection Report" >> selection_report.txt
+        echo "==========================" >> selection_report.txt
+        echo "" >> selection_report.txt
+        echo "Configuration:" >> selection_report.txt
+        echo "- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}" >> selection_report.txt
+        echo "- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}" >> selection_report.txt
+        echo "- Component overrides: ${COMPONENT_OVERRIDES:-none}" >> selection_report.txt
+        echo "- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}" >> selection_report.txt
+        echo "" >> selection_report.txt
+        echo "Components Selected:" >> selection_report.txt
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
@@ -167,8 +192,11 @@ runs:
                   | last
                   | {
                       componentId: .resourceId,
+                      artifactId: .id,
                       artifactName: .name,
-                      version: .version
+                      version: .version,
+                      digest: .digest,
+                      url: .url
                     }
                 end
             ' "artifacts-${COMPONENT_ID}.json")
@@ -184,8 +212,11 @@ runs:
                   | last
                   | {
                       componentId: .resourceId,
+                      artifactId: .id,
                       artifactName: .name,
-                      version: .version
+                      version: .version,
+                      digest: .digest,
+                      url: .url
                     }
                 end
             ' "artifacts-${COMPONENT_ID}.json")
@@ -200,14 +231,55 @@ runs:
             continue
           fi
 
-          # Apply override if configured for this component
-          if [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
-            echo "Applying override version ${OVERRIDE_VERSION} for component ${COMPONENT_ID}"
-            BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION}" '.version = $v')
+          # Apply overrides if configured for this component
+          OVERRIDE_VERSION_TO_USE=""
+
+          # Check new multi-override format first (component_overrides)
+          if [ -n "${COMPONENT_OVERRIDES}" ]; then
+            # Parse comma-separated componentId=version pairs
+            OLD_IFS="$IFS"
+            IFS=','
+            set -- $COMPONENT_OVERRIDES
+            IFS="$OLD_IFS"
+            for OVERRIDE_PAIR in "$@"; do
+              # Split on '=' to get componentId and version
+              OVERRIDE_COMP_ID="${OVERRIDE_PAIR%%=*}"
+              OVERRIDE_VER="${OVERRIDE_PAIR#*=}"
+              if [ "${COMPONENT_ID}" = "${OVERRIDE_COMP_ID}" ]; then
+                echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                OVERRIDE_VERSION_TO_USE="${OVERRIDE_VER}"
+                break
+              fi
+            done
+          fi
+
+          # Fall back to legacy single override format (backwards compatibility)
+          if [ -z "${OVERRIDE_VERSION_TO_USE}" ] && [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
+            echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            OVERRIDE_VERSION_TO_USE="${OVERRIDE_VERSION}"
+          fi
+
+          # Apply the override if found
+          WAS_OVERRIDDEN="false"
+          if [ -n "${OVERRIDE_VERSION_TO_USE}" ]; then
+            echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION_TO_USE}" '.version = $v')
+            WAS_OVERRIDDEN="true"
           fi
 
           echo "Chosen artifact for component ${COMPONENT_ID}:"
           echo "${BEST}"
+
+          # Extract artifact details for reporting
+          ARTIFACT_NAME=$(printf '%s\n' "${BEST}" | jq -r '.artifactName')
+          ARTIFACT_VERSION=$(printf '%s\n' "${BEST}" | jq -r '.version')
+
+          # Add to report
+          if [ "${WAS_OVERRIDDEN}" = "true" ]; then
+            printf "- %-50s %s (OVERRIDDEN)\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+          else
+            printf "- %-50s %s\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+          fi
 
           # Append as one JSON object per line
           printf '%s\n' "${BEST}" >> artifacts_raw.json
@@ -219,22 +291,57 @@ runs:
           exit 1
         fi
 
-        # Turn the line-delimited JSON objects into the manifest structure
+        # Turn the line-delimited JSON objects into the Unify API manifest structure
         jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
 
-        echo "Generated manifest.json (per-component, concrete versions only, with optional override):"
+        echo "Generated manifest.json (Unify API format):"
         cat manifest.json
         echo
 
-        # Export manifest as output (CloudBees format)
+        # Generate release-style manifest for workflow inputs
+        echo "Generating release-style manifest for workflow..."
+        jq -s '
+          reduce .[] as $item ({};
+            # Extract component name from artifact name (everything after last /)
+            ($item.artifactName | split("/") | last) as $compName |
+            . + {
+              ($compName): {
+                deploy: true,
+                id: $item.componentId,
+                ($item.artifactName): {
+                  deploy: true,
+                  name: $item.artifactName,
+                  url: $item.url,
+                  version: $item.version,
+                  digest: $item.digest,
+                  id: $item.artifactId
+                }
+              }
+            }
+          )
+        ' artifacts_raw.json > manifest_release_style.json
+
+        echo "Generated manifest_release_style.json:"
+        cat manifest_release_style.json
+        echo
+
+        # Display selection report
+        echo "========================================="
+        echo "Component Selection Report:"
+        echo "========================================="
+        cat selection_report.txt
+        echo "========================================="
+
+        # Export outputs (CloudBees format)
         OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
         mkdir -p "${OUTPUTS_DIR}"
         jq -c . manifest.json > "${OUTPUTS_DIR}/manifest"
+        cat selection_report.txt > "${OUTPUTS_DIR}/selection_report"
 
     # Step 2: Create application release via API
     - id: create-release
       name: Create application release via API
-      uses: docker://curlimages/curl:8.8.0
+      uses: docker://badouralix/curl-jq-yq:latest
       shell: sh
       env:
         CB_API_TOKEN: ${{ inputs.cb_api_token }}
@@ -252,9 +359,21 @@ runs:
           exit 1
         fi
 
-        echo "Using manifest.json:"
+        if [ ! -f manifest_release_style.json ]; then
+          echo "ERROR: manifest_release_style.json not found – did the Build manifest step run?"
+          exit 1
+        fi
+
+        echo "Using manifest.json (Unify API format):"
         cat manifest.json
         echo
+
+        echo "Using manifest_release_style.json (for workflow inputs):"
+        cat manifest_release_style.json
+        echo
+
+        # Convert release-style manifest to a JSON string for inputs
+        MANIFEST_STRING=$(jq -c . manifest_release_style.json | jq -R .)
 
         cat > body.json <<EOF
         {
