@@ -85,6 +85,15 @@ inputs:
       Format for the selection_report output. Options: "text" (default) or "markdown".
       When set to "markdown", the report is formatted with markdown syntax for use
       with cloudbees-io/publish-evidence-item@v1 or similar tools.
+  prevent_concurrent_releases:
+    required: false
+    default: "false"
+    description: |-
+      Prevent concurrent releases to the same environment. Options:
+      - "false" (default): No check, allow concurrent releases
+      - "fail": Fail if another release with running workflow exists for this environment
+      - "wait": Wait for other releases to this environment to complete, then proceed (max 30 attempts)
+      - "skip": Skip release creation if another release is running for this environment
 
 outputs:
   manifest:
@@ -103,7 +112,7 @@ outputs:
     description: Automation run ID from the release execution
     value: ${{ steps.consolidate-outputs.outputs.run_id }}
   status:
-    description: Final release status (SUCCEEDED, FAILED, TIMEOUT, SKIPPED_MISSING_ARTIFACTS)
+    description: Final release status (SUCCEEDED, FAILED, TIMEOUT, SKIPPED_MISSING_ARTIFACTS, SKIPPED_CONCURRENT_RELEASE)
     value: ${{ steps.consolidate-outputs.outputs.status }}
 
 runs:
@@ -491,7 +500,139 @@ runs:
           echo "false" > should_skip.txt
         fi
 
-    # Step 3: Create application release via API
+    # Step 3: Check for concurrent releases (optional)
+    - id: check-concurrent-releases
+      name: Check for concurrent releases to same environment
+      uses: docker://badouralix/curl-jq-yq:latest
+      shell: sh
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_ORG_ID: ${{ inputs.cb_org_id }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ENVIRONMENT: ${{ inputs.cb_environment }}
+        PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
+      run: |
+        set -eu
+
+        # Check if we should skip this step (previous steps already decided to skip)
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping concurrent release check (release already being skipped)"
+          exit 0
+        fi
+
+        # Skip if prevent_concurrent_releases is disabled
+        if [ "${PREVENT_CONCURRENT_RELEASES}" = "false" ]; then
+          echo "Concurrent release checking is disabled, proceeding..."
+          exit 0
+        fi
+
+        echo "Checking for concurrent releases to environment: ${CB_ENVIRONMENT}"
+        echo "Action on conflict: ${PREVENT_CONCURRENT_RELEASES}"
+
+        # Function to check for running releases
+        check_running_releases() {
+          echo "Querying releases for application ${CB_APPLICATION_ID}..."
+
+          curl -sS \
+            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            > releases.json
+
+          echo "Releases response received"
+
+          # Filter for releases that:
+          # 1. Contain the environment name in the release name
+          # 2. Have a runId (workflow has started)
+          # 3. Are not in terminal state (status not in: SUCCEEDED, FAILED, CANCELLED, CLOSED)
+          RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" '
+            .releases[]?
+            | select(.releaseName | contains($env))
+            | select(.runId != null and .runId != "")
+            | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
+            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId))"
+          ' releases.json 2>/dev/null || echo "")
+
+          if [ -n "${RUNNING_RELEASES}" ]; then
+            echo "Found running releases for environment ${CB_ENVIRONMENT}:"
+            echo "${RUNNING_RELEASES}"
+            return 1
+          else
+            echo "No running releases found for environment ${CB_ENVIRONMENT}"
+            return 0
+          fi
+        }
+
+        # Handle based on prevent_concurrent_releases value
+        case "${PREVENT_CONCURRENT_RELEASES}" in
+          "fail")
+            echo "Mode: FAIL - Will fail if concurrent release detected"
+            if ! check_running_releases; then
+              echo ""
+              echo "❌ ERROR: Cannot create release - another release is already running for environment: ${CB_ENVIRONMENT}"
+              echo "Please wait for the existing release to complete, or use prevent_concurrent_releases: 'wait' to queue automatically."
+              exit 1
+            fi
+            echo "✅ No concurrent releases detected, proceeding..."
+            ;;
+
+          "wait")
+            echo "Mode: WAIT - Will wait for concurrent releases to complete"
+            MAX_WAIT_ATTEMPTS=30
+            WAIT_SLEEP=10
+            attempt=1
+
+            while [ "$attempt" -le "$MAX_WAIT_ATTEMPTS" ]; do
+              if check_running_releases; then
+                echo "✅ No concurrent releases detected, proceeding..."
+                break
+              fi
+
+              if [ "$attempt" -eq "$MAX_WAIT_ATTEMPTS" ]; then
+                echo ""
+                echo "❌ ERROR: Timed out waiting for concurrent releases to complete (${MAX_WAIT_ATTEMPTS} attempts)"
+                echo "Another release is still running for environment: ${CB_ENVIRONMENT}"
+                exit 1
+              fi
+
+              echo "⏳ Waiting for concurrent releases to complete... (attempt ${attempt}/${MAX_WAIT_ATTEMPTS})"
+              sleep "${WAIT_SLEEP}"
+              attempt=$((attempt + 1))
+            done
+            ;;
+
+          "skip")
+            echo "Mode: SKIP - Will skip if concurrent release detected"
+            if ! check_running_releases; then
+              echo ""
+              echo "⚠️  SKIPPING RELEASE CREATION"
+              echo "Reason: Another release is running for environment: ${CB_ENVIRONMENT}"
+              echo ""
+              echo "true" > should_skip.txt
+              echo "SKIPPED_CONCURRENT_RELEASE" > final_status.txt
+
+              # Export outputs with empty/placeholder values for skipped steps
+              OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
+              mkdir -p "${OUTPUTS_DIR}"
+              echo "SKIPPED_CONCURRENT_RELEASE" > "${OUTPUTS_DIR}/status"
+              echo "" > "${OUTPUTS_DIR}/release_id"
+              echo "" > "${OUTPUTS_DIR}/release_name"
+              echo "" > "${OUTPUTS_DIR}/run_id"
+
+              echo "✅ Action succeeded without creating release (concurrent release detected)"
+              exit 0
+            fi
+            echo "✅ No concurrent releases detected, proceeding..."
+            ;;
+
+          *)
+            echo "⚠️  Unknown prevent_concurrent_releases value: ${PREVENT_CONCURRENT_RELEASES}"
+            echo "Proceeding without check..."
+            ;;
+        esac
+
+    # Step 4: Create application release via API
     - id: create-release
       name: Create application release via API
       uses: docker://badouralix/curl-jq-yq:latest
@@ -512,7 +653,9 @@ runs:
           exit 0
         fi
 
-        RELEASE_NAME="${RELEASE_NAME_PREFIX}-$(date -u +%Y%m%d-%H%M%S)"
+        # Always include environment in release name for identification
+        RELEASE_NAME="${RELEASE_NAME_PREFIX}-${CB_ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
+        echo "Generated release name: ${RELEASE_NAME}"
 
         if [ ! -f manifest.json ]; then
           echo "ERROR: manifest.json not found – did the Build manifest step run?"
@@ -581,7 +724,7 @@ runs:
         echo "${RELEASE_ID}" > "${OUTPUTS_DIR}/release_id"
         echo "${RELEASE_NAME}" > "${OUTPUTS_DIR}/release_name"
 
-    # Step 4: Start the release (run workflow)
+    # Step 5: Start the release (run workflow)
     - id: start-release
       name: Start release (run workflow)
       uses: docker://curlimages/curl:8.8.0
@@ -611,7 +754,7 @@ runs:
         echo "Run response:"
         echo "${RESPONSE}"
 
-    # Step 5: Wait for release workflow run to complete (poll automation run)
+    # Step 6: Wait for release workflow run to complete (poll automation run)
     - id: wait-release
       name: Wait for release workflow run to complete
       uses: docker://curlimages/curl:8.8.0
@@ -735,7 +878,7 @@ runs:
         fi
         exit 0
 
-    # Step 6: Report final result
+    # Step 7: Report final result
     - id: report-result
       name: Report release result
       uses: docker://curlimages/curl:8.8.0
@@ -743,13 +886,23 @@ runs:
       run: |
         set -eu
 
-        # Check if release was skipped due to missing artifacts
+        # Check if release was skipped (missing artifacts or concurrent release)
         if [ -f final_status.txt ]; then
           FINAL_STATUS=$(cat final_status.txt)
           echo "Release was skipped: ${FINAL_STATUS}"
 
-          # Status was already exported by check-skip-condition step
-          echo "⚠️  Release creation skipped due to missing component artifacts."
+          # Status was already exported by earlier steps
+          case "${FINAL_STATUS}" in
+            SKIPPED_MISSING_ARTIFACTS)
+              echo "⚠️  Release creation skipped due to missing component artifacts."
+              ;;
+            SKIPPED_CONCURRENT_RELEASE)
+              echo "⚠️  Release creation skipped due to concurrent release running."
+              ;;
+            *)
+              echo "⚠️  Release creation skipped: ${FINAL_STATUS}"
+              ;;
+          esac
           echo "Action succeeded without creating a release."
           exit 0
         fi
@@ -782,7 +935,7 @@ runs:
             ;;
         esac
 
-    # Step 7: Optionally close the release
+    # Step 8: Optionally close the release
     - id: close-release
       name: Close release if configured
       uses: docker://curlimages/curl:8.8.0
@@ -889,7 +1042,7 @@ runs:
           echo "✅ Release closed successfully"
         fi
 
-    # Step 8: Consolidate outputs (always runs)
+    # Step 9: Consolidate outputs (always runs)
     - id: consolidate-outputs
       name: Consolidate all outputs
       uses: docker://badouralix/curl-jq-yq:latest
