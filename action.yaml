@@ -853,6 +853,20 @@ runs:
         OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
         mkdir -p "${OUTPUTS_DIR}"
 
+        # Check if we skipped the release
+        if [ -f final_status.txt ]; then
+          FINAL_STATUS=$(cat final_status.txt)
+          echo "Release was skipped, status: ${FINAL_STATUS}"
+          echo "${FINAL_STATUS}" > "${OUTPUTS_DIR}/status"
+        elif [ -f run_status.txt ]; then
+          RUN_STATUS=$(cat run_status.txt)
+          echo "Release completed, status: ${RUN_STATUS}"
+          echo "${RUN_STATUS}" > "${OUTPUTS_DIR}/status"
+        else
+          echo "No status files found, setting to UNKNOWN"
+          echo "UNKNOWN" > "${OUTPUTS_DIR}/status"
+        fi
+
         # These files should always exist (created by build-manifest or check-skip-condition)
         if [ -f manifest.json ]; then
           jq -c . manifest.json > "${OUTPUTS_DIR}/manifest"
@@ -865,24 +879,19 @@ runs:
         # These files may be empty if release was skipped
         if [ -f release_id.txt ]; then
           cat release_id.txt > "${OUTPUTS_DIR}/release_id"
-        elif [ ! -f "${OUTPUTS_DIR}/release_id" ]; then
+        else
           echo "" > "${OUTPUTS_DIR}/release_id"
         fi
 
         if [ -f release_name.txt ]; then
           cat release_name.txt > "${OUTPUTS_DIR}/release_name"
-        elif [ ! -f "${OUTPUTS_DIR}/release_name" ]; then
+        else
           echo "" > "${OUTPUTS_DIR}/release_name"
         fi
 
-        # run_id comes from wait-release or check-skip-condition
+        # run_id comes from wait-release step
         if [ ! -f "${OUTPUTS_DIR}/run_id" ]; then
           echo "" > "${OUTPUTS_DIR}/run_id"
-        fi
-
-        # Status should always be set by report-result or check-skip-condition
-        if [ ! -f "${OUTPUTS_DIR}/status" ]; then
-          echo "UNKNOWN" > "${OUTPUTS_DIR}/status"
         fi
 
         echo "All outputs consolidated successfully"
