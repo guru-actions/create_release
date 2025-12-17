@@ -369,6 +369,14 @@ runs:
           echo
         fi
 
+        # Add summary section to report
+        echo "" >> selection_report.txt
+        echo "Summary:" >> selection_report.txt
+        echo "========" >> selection_report.txt
+        echo "Total linked components:     ${TOTAL_COMPONENTS}" >> selection_report.txt
+        echo "Components with artifacts:   ${FOUND_COMPONENTS}" >> selection_report.txt
+        echo "Components without artifacts: ${MISSING_COMPONENTS}" >> selection_report.txt
+
         # Display selection report
         echo "========================================="
         echo "Component Selection Report:"
@@ -409,9 +417,20 @@ runs:
           echo "true" > should_skip.txt
           echo "SKIPPED_MISSING_ARTIFACTS" > final_status.txt
 
-          # Export outputs with empty/placeholder values for skipped steps
+          # Add skip notice to selection report
+          echo "" >> selection_report.txt
+          echo "⚠️  RELEASE SKIPPED" >> selection_report.txt
+          echo "==================" >> selection_report.txt
+          echo "Release creation was skipped because ${MISSING_COMPONENTS} component(s) do not have" >> selection_report.txt
+          echo "matching artifacts and skip_release_on_missing_artifacts is enabled." >> selection_report.txt
+          echo "No release was created." >> selection_report.txt
+
+          # Update selection report output
           OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
           mkdir -p "${OUTPUTS_DIR}"
+          cat selection_report.txt > "${OUTPUTS_DIR}/selection_report"
+
+          # Export outputs with empty/placeholder values for skipped steps
           echo "SKIPPED_MISSING_ARTIFACTS" > "${OUTPUTS_DIR}/status"
           echo "" > "${OUTPUTS_DIR}/release_id"
           echo "" > "${OUTPUTS_DIR}/release_name"
