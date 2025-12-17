@@ -70,6 +70,14 @@ inputs:
     required: false
     default: "false"
     description: Automatically close the release if it fails
+  skip_release_on_missing_artifacts:
+    required: false
+    default: "false"
+    description: |-
+      Skip release creation if any linked components don't have matching artifacts.
+      When true and components are missing: action succeeds but no release is created,
+      status output is set to 'SKIPPED_MISSING_ARTIFACTS'. When false (default):
+      release is created with available components only.
 
 outputs:
   manifest:
@@ -109,6 +117,7 @@ runs:
         OVERRIDE_COMPONENT_ID: ${{ inputs.override_component_id }}
         OVERRIDE_VERSION: ${{ inputs.override_version }}
         COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
+        SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
       run: |
         set -eu
 
@@ -131,11 +140,18 @@ runs:
           exit 1
         fi
 
+        # Count total linked components
+        TOTAL_COMPONENTS=$(wc -l < components.txt | tr -d ' ')
+        echo "Total linked components: ${TOTAL_COMPONENTS}"
+
         # We'll collect one JSON object per component here:
         : > artifacts_raw.json
 
         # Initialize report file
         : > selection_report.txt
+
+        # Track components with missing artifacts
+        MISSING_COMPONENTS=0
 
         # Report header
         echo "Component Selection Report" >> selection_report.txt
@@ -228,6 +244,7 @@ runs:
             else
               echo "No non-\"latest\" artifact found for component ${COMPONENT_ID}, skipping it."
             fi
+            MISSING_COMPONENTS=$((MISSING_COMPONENTS + 1))
             continue
           fi
 
@@ -286,44 +303,71 @@ runs:
 
         done < components.txt
 
-        if [ ! -s artifacts_raw.json ]; then
-          echo "ERROR: No usable artifacts found for any linked component."
-          exit 1
-        fi
+        # Calculate components found
+        FOUND_COMPONENTS=$((TOTAL_COMPONENTS - MISSING_COMPONENTS))
+        echo ""
+        echo "Component Summary:"
+        echo "  Total linked components: ${TOTAL_COMPONENTS}"
+        echo "  Components with artifacts: ${FOUND_COMPONENTS}"
+        echo "  Components without artifacts: ${MISSING_COMPONENTS}"
 
-        # Turn the line-delimited JSON objects into the Unify API manifest structure
-        jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
+        # Save counts for next step
+        echo "${TOTAL_COMPONENTS}" > total_components.txt
+        echo "${FOUND_COMPONENTS}" > found_components.txt
+        echo "${MISSING_COMPONENTS}" > missing_components.txt
+
+        # Check if we have any artifacts
+        if [ ! -s artifacts_raw.json ]; then
+          echo ""
+          echo "WARNING: No usable artifacts found for any linked component."
+
+          # If skip flag is enabled, we'll handle this in the next step
+          # Otherwise, fail immediately
+          if [ "${SKIP_RELEASE_ON_MISSING_ARTIFACTS}" != "true" ]; then
+            echo "ERROR: Cannot create release without any artifacts."
+            exit 1
+          fi
+
+          # Create empty manifest for consistency
+          echo '{"artifactVersions":[]}' > manifest.json
+          echo '{}' > manifest_release_style.json
+        else
+          # Turn the line-delimited JSON objects into the Unify API manifest structure
+          jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
+        fi
 
         echo "Generated manifest.json (Unify API format):"
         cat manifest.json
         echo
 
-        # Generate release-style manifest for workflow inputs
-        echo "Generating release-style manifest for workflow..."
-        jq -s '
-          reduce .[] as $item ({};
-            # Extract component name from artifact name (everything after last /)
-            ($item.artifactName | split("/") | last) as $compName |
-            . + {
-              ($compName): {
-                deploy: true,
-                id: $item.componentId,
-                ($item.artifactName): {
+        # Generate release-style manifest for workflow inputs (only if we have artifacts)
+        if [ -s artifacts_raw.json ]; then
+          echo "Generating release-style manifest for workflow..."
+          jq -s '
+            reduce .[] as $item ({};
+              # Extract component name from artifact name (everything after last /)
+              ($item.artifactName | split("/") | last) as $compName |
+              . + {
+                ($compName): {
                   deploy: true,
-                  name: $item.artifactName,
-                  url: $item.url,
-                  version: $item.version,
-                  digest: $item.digest,
-                  id: $item.artifactId
+                  id: $item.componentId,
+                  ($item.artifactName): {
+                    deploy: true,
+                    name: $item.artifactName,
+                    url: $item.url,
+                    version: $item.version,
+                    digest: $item.digest,
+                    id: $item.artifactId
+                  }
                 }
               }
-            }
-          )
-        ' artifacts_raw.json > manifest_release_style.json
+            )
+          ' artifacts_raw.json > manifest_release_style.json
 
-        echo "Generated manifest_release_style.json:"
-        cat manifest_release_style.json
-        echo
+          echo "Generated manifest_release_style.json:"
+          cat manifest_release_style.json
+          echo
+        fi
 
         # Display selection report
         echo "========================================="
@@ -338,7 +382,45 @@ runs:
         jq -c . manifest.json > "${OUTPUTS_DIR}/manifest"
         cat selection_report.txt > "${OUTPUTS_DIR}/selection_report"
 
-    # Step 2: Create application release via API
+    # Step 2: Check if we should skip release creation
+    - id: check-skip-condition
+      name: Check if release should be skipped
+      uses: docker://alpine:3.18
+      shell: sh
+      env:
+        SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
+      run: |
+        set -eu
+
+        # Read component counts
+        MISSING_COMPONENTS=$(cat missing_components.txt)
+
+        echo "Checking skip condition..."
+        echo "  Missing components: ${MISSING_COMPONENTS}"
+        echo "  Skip on missing flag: ${SKIP_RELEASE_ON_MISSING_ARTIFACTS}"
+
+        # Determine if we should skip
+        if [ "${SKIP_RELEASE_ON_MISSING_ARTIFACTS}" = "true" ] && [ "${MISSING_COMPONENTS}" -gt 0 ]; then
+          echo ""
+          echo "⚠️  SKIPPING RELEASE CREATION"
+          echo "Reason: ${MISSING_COMPONENTS} component(s) do not have matching artifacts"
+          echo "The skip_release_on_missing_artifacts flag is enabled"
+          echo ""
+          echo "true" > should_skip.txt
+          echo "SKIPPED_MISSING_ARTIFACTS" > final_status.txt
+
+          # Export status immediately
+          OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
+          mkdir -p "${OUTPUTS_DIR}"
+          echo "SKIPPED_MISSING_ARTIFACTS" > "${OUTPUTS_DIR}/status"
+        else
+          echo ""
+          echo "✅ Proceeding with release creation"
+          echo ""
+          echo "false" > should_skip.txt
+        fi
+
+    # Step 3: Create application release via API
     - id: create-release
       name: Create application release via API
       uses: docker://badouralix/curl-jq-yq:latest
@@ -352,6 +434,13 @@ runs:
         RELEASE_NAME_PREFIX: ${{ inputs.release_name_prefix }}
       run: |
         set -eu
+
+        # Check if we should skip this step
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping release creation (missing artifacts)"
+          exit 0
+        fi
+
         RELEASE_NAME="${RELEASE_NAME_PREFIX}-$(date -u +%Y%m%d-%H%M%S)"
 
         if [ ! -f manifest.json ]; then
@@ -421,7 +510,7 @@ runs:
         echo "${RELEASE_ID}" > "${OUTPUTS_DIR}/release_id"
         echo "${RELEASE_NAME}" > "${OUTPUTS_DIR}/release_name"
 
-    # Step 3: Start the release (run workflow)
+    # Step 4: Start the release (run workflow)
     - id: start-release
       name: Start release (run workflow)
       uses: docker://curlimages/curl:8.8.0
@@ -432,6 +521,13 @@ runs:
         CB_BASE_URL: ${{ inputs.cb_base_url }}
       run: |
         set -eu
+
+        # Check if we should skip this step
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping start release (missing artifacts)"
+          exit 0
+        fi
+
         RELEASE_ID=$(cat release_id.txt)
         echo "Starting release ${RELEASE_ID}"
 
@@ -444,7 +540,7 @@ runs:
         echo "Run response:"
         echo "${RESPONSE}"
 
-    # Step 4: Wait for release workflow run to complete (poll automation run)
+    # Step 5: Wait for release workflow run to complete (poll automation run)
     - id: wait-release
       name: Wait for release workflow run to complete
       uses: docker://curlimages/curl:8.8.0
@@ -457,6 +553,13 @@ runs:
         SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
       run: |
         set -eu
+
+        # Check if we should skip this step
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping wait for release (missing artifacts)"
+          exit 0
+        fi
+
         RELEASE_ID=$(cat release_id.txt)
         echo "Waiting for workflow run for release ${RELEASE_ID} to complete..."
 
@@ -561,13 +664,24 @@ runs:
         fi
         exit 0
 
-    # Step 5: Report final result
+    # Step 6: Report final result
     - id: report-result
       name: Report release result
       uses: docker://curlimages/curl:8.8.0
       shell: sh
       run: |
         set -eu
+
+        # Check if release was skipped due to missing artifacts
+        if [ -f final_status.txt ]; then
+          FINAL_STATUS=$(cat final_status.txt)
+          echo "Release was skipped: ${FINAL_STATUS}"
+
+          # Status was already exported by check-skip-condition step
+          echo "⚠️  Release creation skipped due to missing component artifacts."
+          echo "Action succeeded without creating a release."
+          exit 0
+        fi
 
         if [ ! -f run_status.txt ]; then
           echo "No run_status.txt found – something went wrong earlier."
@@ -597,7 +711,7 @@ runs:
             ;;
         esac
 
-    # Step 6: Optionally close the release
+    # Step 7: Optionally close the release
     - id: close-release
       name: Close release if configured
       uses: docker://curlimages/curl:8.8.0
@@ -610,6 +724,12 @@ runs:
         CLOSE_ON_FAIL: ${{ inputs.close_on_fail }}
       run: |
         set -eu
+
+        # Check if we should skip this step (no release was created)
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping close release (no release was created)"
+          exit 0
+        fi
 
         if [ ! -f run_status.txt ] || [ ! -f release_id.txt ]; then
           echo "Missing status or release ID files - skipping close operation"
