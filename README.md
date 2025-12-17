@@ -53,7 +53,7 @@ This action:
 | `close_on_fail` | Automatically close the release if it fails | `false` |
 | `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
 | `selection_report_format` | Format for the `selection_report` output. Options: `text` (default) or `markdown`. When set to `markdown`, the report is formatted with markdown syntax for use with `cloudbees-io/publish-evidence-item@v1` or similar tools. | `text` |
-| `prevent_concurrent_releases` | Prevent concurrent releases to the same environment. Options: `false` (default, no check), `fail` (fail if concurrent release detected), `wait` (wait up to 5 minutes for concurrent releases to complete), `skip` (skip release creation if concurrent release detected). Requires release names to include environment (automatically handled). | `false` |
+| `prevent_concurrent_releases` | Prevent concurrent releases to the same environment. Options: `false` (default, no check), `skip` (skip release creation if concurrent release detected), `wait` (create release then wait in queue for your turn, up to 5 minutes). Release names automatically include environment for identification. | `false` |
 
 ## Outputs
 
@@ -268,33 +268,7 @@ Skip release creation if any components don't have matching artifacts (useful fo
 
 Prevent multiple releases from running simultaneously to the same environment. This is useful when multiple components might trigger releases concurrently:
 
-**Fail on concurrent release:**
-```yaml
-- name: Create release (fail if another running)
-  uses: https://github.com/guru-actions/create_release@main
-  with:
-    cb_api_token: ${{ secrets.CB_API_TOKEN }}
-    cb_org_id: ${{ vars.CB_ORG_ID }}
-    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
-    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
-    cb_environment: "production"
-    prevent_concurrent_releases: "fail"  # Fail if concurrent release exists
-```
-
-**Wait for concurrent releases:**
-```yaml
-- name: Create release (wait for others)
-  uses: https://github.com/guru-actions/create_release@main
-  with:
-    cb_api_token: ${{ secrets.CB_API_TOKEN }}
-    cb_org_id: ${{ vars.CB_ORG_ID }}
-    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
-    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
-    cb_environment: "production"
-    prevent_concurrent_releases: "wait"  # Wait up to 5 minutes for others
-```
-
-**Skip if concurrent release:**
+**Skip if concurrent release (don't create):**
 ```yaml
 - name: Create release (skip if another running)
   id: release
@@ -317,11 +291,39 @@ Prevent multiple releases from running simultaneously to the same environment. T
     fi
 ```
 
+**Wait in queue (FIFO ordering):**
+```yaml
+- name: Create release (wait for your turn in queue)
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "wait"  # Create release, wait in queue, start when ready
+```
+
 **How it works:**
-- Release names now automatically include the environment (e.g., `release-production-20231208-143022`)
-- The action checks for other releases to the same environment with running workflows
-- Actions: `fail` (exit with error), `wait` (poll until clear), or `skip` (succeed without creating release)
-- When skipping, status output is set to `SKIPPED_CONCURRENT_RELEASE`
+
+**Skip mode:**
+- Checks for running releases BEFORE creating
+- If found: Skips creation, succeeds with `SKIPPED_CONCURRENT_RELEASE`
+- If clear: Creates and starts release normally
+
+**Wait mode:**
+- Always creates the release (adds you to the queue)
+- Checks for OTHER releases created before you
+- Waits for all earlier releases to complete (FIFO ordering)
+- Then starts your release when it's your turn
+- Timeout: 5 minutes (30 checks × 10 seconds)
+
+**Benefits:**
+- Release names include environment for identification (e.g., `release-production-20231208-143022`)
+- FIFO queue ordering ensures releases start in the order they were created
+- Prevents race conditions when multiple components trigger releases
+- `skip` mode avoids creating unnecessary releases
+- `wait` mode provides automatic queuing
 
 ### Using Outputs
 

@@ -90,10 +90,9 @@ inputs:
     default: "false"
     description: |-
       Prevent concurrent releases to the same environment. Options:
-      - "false" (default): No check, allow concurrent releases
-      - "fail": Fail if another release with running workflow exists for this environment
-      - "wait": Wait for other releases to this environment to complete, then proceed (max 30 attempts)
-      - "skip": Skip release creation if another release is running for this environment
+      - "false" (default): No check, create and run release immediately
+      - "skip": Check before creating; skip release creation if another release is running
+      - "wait": Create release, then wait for other releases to complete before starting (max 5 minutes)
 
 outputs:
   manifest:
@@ -500,14 +499,13 @@ runs:
           echo "false" > should_skip.txt
         fi
 
-    # Step 3: Check for concurrent releases (optional)
-    - id: check-concurrent-releases
-      name: Check for concurrent releases to same environment
+    # Step 3: Check for concurrent releases (skip mode only - before create)
+    - id: check-concurrent-skip
+      name: Check for concurrent releases (skip mode)
       uses: docker://badouralix/curl-jq-yq:latest
       shell: sh
       env:
         CB_API_TOKEN: ${{ inputs.cb_api_token }}
-        CB_ORG_ID: ${{ inputs.cb_org_id }}
         CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
@@ -521,116 +519,56 @@ runs:
           exit 0
         fi
 
-        # Skip if prevent_concurrent_releases is disabled
-        if [ "${PREVENT_CONCURRENT_RELEASES}" = "false" ]; then
-          echo "Concurrent release checking is disabled, proceeding..."
+        # Only run for "skip" mode
+        if [ "${PREVENT_CONCURRENT_RELEASES}" != "skip" ]; then
+          echo "Concurrent release check (skip mode) not enabled, proceeding..."
           exit 0
         fi
 
         echo "Checking for concurrent releases to environment: ${CB_ENVIRONMENT}"
-        echo "Action on conflict: ${PREVENT_CONCURRENT_RELEASES}"
+        echo "Mode: SKIP - Will not create release if concurrent detected"
 
-        # Function to check for running releases
-        check_running_releases() {
-          echo "Querying releases for application ${CB_APPLICATION_ID}..."
+        curl -sS \
+          "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
+          -H "Authorization: Bearer ${CB_API_TOKEN}" \
+          -H "Content-Type: application/json" \
+          > releases.json
 
-          curl -sS \
-            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
-            -H "Authorization: Bearer ${CB_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            > releases.json
+        # Filter for releases that:
+        # 1. Contain the environment name in the release name
+        # 2. Have a runId (workflow has started)
+        # 3. Are not in terminal state
+        RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" '
+          .releases[]?
+          | select(.releaseName | contains($env))
+          | select(.runId != null and .runId != "")
+          | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
+          | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
+        ' releases.json 2>/dev/null || echo "")
 
-          echo "Releases response received"
+        if [ -n "${RUNNING_RELEASES}" ]; then
+          echo "Found running releases for environment ${CB_ENVIRONMENT}:"
+          echo "${RUNNING_RELEASES}"
+          echo ""
+          echo "⚠️  SKIPPING RELEASE CREATION"
+          echo "Reason: Another release is running for environment: ${CB_ENVIRONMENT}"
+          echo ""
+          echo "true" > should_skip.txt
+          echo "SKIPPED_CONCURRENT_RELEASE" > final_status.txt
 
-          # Filter for releases that:
-          # 1. Contain the environment name in the release name
-          # 2. Have a runId (workflow has started)
-          # 3. Are not in terminal state (status not in: SUCCEEDED, FAILED, CANCELLED, CLOSED)
-          RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" '
-            .releases[]?
-            | select(.releaseName | contains($env))
-            | select(.runId != null and .runId != "")
-            | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
-            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId))"
-          ' releases.json 2>/dev/null || echo "")
+          # Export outputs
+          OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
+          mkdir -p "${OUTPUTS_DIR}"
+          echo "SKIPPED_CONCURRENT_RELEASE" > "${OUTPUTS_DIR}/status"
+          echo "" > "${OUTPUTS_DIR}/release_id"
+          echo "" > "${OUTPUTS_DIR}/release_name"
+          echo "" > "${OUTPUTS_DIR}/run_id"
 
-          if [ -n "${RUNNING_RELEASES}" ]; then
-            echo "Found running releases for environment ${CB_ENVIRONMENT}:"
-            echo "${RUNNING_RELEASES}"
-            return 1
-          else
-            echo "No running releases found for environment ${CB_ENVIRONMENT}"
-            return 0
-          fi
-        }
+          echo "✅ Action succeeded without creating release (concurrent release detected)"
+          exit 0
+        fi
 
-        # Handle based on prevent_concurrent_releases value
-        case "${PREVENT_CONCURRENT_RELEASES}" in
-          "fail")
-            echo "Mode: FAIL - Will fail if concurrent release detected"
-            if ! check_running_releases; then
-              echo ""
-              echo "❌ ERROR: Cannot create release - another release is already running for environment: ${CB_ENVIRONMENT}"
-              echo "Please wait for the existing release to complete, or use prevent_concurrent_releases: 'wait' to queue automatically."
-              exit 1
-            fi
-            echo "✅ No concurrent releases detected, proceeding..."
-            ;;
-
-          "wait")
-            echo "Mode: WAIT - Will wait for concurrent releases to complete"
-            MAX_WAIT_ATTEMPTS=30
-            WAIT_SLEEP=10
-            attempt=1
-
-            while [ "$attempt" -le "$MAX_WAIT_ATTEMPTS" ]; do
-              if check_running_releases; then
-                echo "✅ No concurrent releases detected, proceeding..."
-                break
-              fi
-
-              if [ "$attempt" -eq "$MAX_WAIT_ATTEMPTS" ]; then
-                echo ""
-                echo "❌ ERROR: Timed out waiting for concurrent releases to complete (${MAX_WAIT_ATTEMPTS} attempts)"
-                echo "Another release is still running for environment: ${CB_ENVIRONMENT}"
-                exit 1
-              fi
-
-              echo "⏳ Waiting for concurrent releases to complete... (attempt ${attempt}/${MAX_WAIT_ATTEMPTS})"
-              sleep "${WAIT_SLEEP}"
-              attempt=$((attempt + 1))
-            done
-            ;;
-
-          "skip")
-            echo "Mode: SKIP - Will skip if concurrent release detected"
-            if ! check_running_releases; then
-              echo ""
-              echo "⚠️  SKIPPING RELEASE CREATION"
-              echo "Reason: Another release is running for environment: ${CB_ENVIRONMENT}"
-              echo ""
-              echo "true" > should_skip.txt
-              echo "SKIPPED_CONCURRENT_RELEASE" > final_status.txt
-
-              # Export outputs with empty/placeholder values for skipped steps
-              OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
-              mkdir -p "${OUTPUTS_DIR}"
-              echo "SKIPPED_CONCURRENT_RELEASE" > "${OUTPUTS_DIR}/status"
-              echo "" > "${OUTPUTS_DIR}/release_id"
-              echo "" > "${OUTPUTS_DIR}/release_name"
-              echo "" > "${OUTPUTS_DIR}/run_id"
-
-              echo "✅ Action succeeded without creating release (concurrent release detected)"
-              exit 0
-            fi
-            echo "✅ No concurrent releases detected, proceeding..."
-            ;;
-
-          *)
-            echo "⚠️  Unknown prevent_concurrent_releases value: ${PREVENT_CONCURRENT_RELEASES}"
-            echo "Proceeding without check..."
-            ;;
-        esac
+        echo "✅ No concurrent releases detected, proceeding with release creation..."
 
     # Step 4: Create application release via API
     - id: create-release
@@ -724,7 +662,95 @@ runs:
         echo "${RELEASE_ID}" > "${OUTPUTS_DIR}/release_id"
         echo "${RELEASE_NAME}" > "${OUTPUTS_DIR}/release_name"
 
-    # Step 5: Start the release (run workflow)
+    # Step 5: Wait for queue position (wait mode only - after create, before start)
+    - id: check-concurrent-wait
+      name: Wait for queue position (wait mode)
+      uses: docker://badouralix/curl-jq-yq:latest
+      shell: sh
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ENVIRONMENT: ${{ inputs.cb_environment }}
+        PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
+      run: |
+        set -eu
+
+        # Check if we should skip this step
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping queue check (release already being skipped)"
+          exit 0
+        fi
+
+        # Only run for "wait" mode
+        if [ "${PREVENT_CONCURRENT_RELEASES}" != "wait" ]; then
+          echo "Queue waiting (wait mode) not enabled, proceeding..."
+          exit 0
+        fi
+
+        OUR_RELEASE_ID=$(cat release_id.txt)
+        OUR_RELEASE_NAME=$(cat release_name.txt)
+
+        echo "Checking queue position for release: ${OUR_RELEASE_NAME}"
+        echo "Mode: WAIT - Will wait for releases created before us to complete"
+
+        MAX_WAIT_ATTEMPTS=30
+        WAIT_SLEEP=10
+        attempt=1
+
+        while [ "$attempt" -le "$MAX_WAIT_ATTEMPTS" ]; do
+          echo ""
+          echo "⏳ Queue check attempt ${attempt}/${MAX_WAIT_ATTEMPTS}..."
+
+          curl -sS \
+            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            > releases.json
+
+          # Find releases that:
+          # 1. Are for same environment (contain env name)
+          # 2. Are NOT our release (different ID)
+          # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
+          # 4. Have started running (have runId) OR are very recent (could be about to start)
+          # 5. Are not in terminal state
+          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" '
+            .releases[]?
+            | select(.releaseName | contains($env))
+            | select(.releaseId != $ourId)
+            | select(.releaseName < $ourName)
+            | select(
+                (.runId != null and .runId != "") or
+                (.status == "CREATED" or .status == "PENDING")
+              )
+            | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
+            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
+          ' releases.json 2>/dev/null || echo "")
+
+          if [ -z "${BLOCKING_RELEASES}" ]; then
+            echo "✅ No releases ahead of us in queue, we can start now!"
+            break
+          fi
+
+          echo "Found releases ahead of us in queue:"
+          echo "${BLOCKING_RELEASES}"
+
+          if [ "$attempt" -eq "$MAX_WAIT_ATTEMPTS" ]; then
+            echo ""
+            echo "❌ ERROR: Timed out waiting for queue (${MAX_WAIT_ATTEMPTS} attempts, $((MAX_WAIT_ATTEMPTS * WAIT_SLEEP / 60)) minutes)"
+            echo "Releases are still ahead of us in the queue."
+            exit 1
+          fi
+
+          echo "Waiting ${WAIT_SLEEP} seconds before checking again..."
+          sleep "${WAIT_SLEEP}"
+          attempt=$((attempt + 1))
+        done
+
+        echo ""
+        echo "✅ Our turn! Proceeding to start release..."
+
+    # Step 6: Start the release (run workflow)
     - id: start-release
       name: Start release (run workflow)
       uses: docker://curlimages/curl:8.8.0
@@ -754,7 +780,7 @@ runs:
         echo "Run response:"
         echo "${RESPONSE}"
 
-    # Step 6: Wait for release workflow run to complete (poll automation run)
+    # Step 7: Wait for release workflow run to complete (poll automation run)
     - id: wait-release
       name: Wait for release workflow run to complete
       uses: docker://curlimages/curl:8.8.0
@@ -878,7 +904,7 @@ runs:
         fi
         exit 0
 
-    # Step 7: Report final result
+    # Step 8: Report final result
     - id: report-result
       name: Report release result
       uses: docker://curlimages/curl:8.8.0
@@ -935,7 +961,7 @@ runs:
             ;;
         esac
 
-    # Step 8: Optionally close the release
+    # Step 9: Optionally close the release
     - id: close-release
       name: Close release if configured
       uses: docker://curlimages/curl:8.8.0
@@ -1042,7 +1068,7 @@ runs:
           echo "✅ Release closed successfully"
         fi
 
-    # Step 9: Consolidate outputs (always runs)
+    # Step 10: Consolidate outputs (always runs)
     - id: consolidate-outputs
       name: Consolidate all outputs
       uses: docker://badouralix/curl-jq-yq:latest
