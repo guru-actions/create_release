@@ -78,6 +78,13 @@ inputs:
       When true and components are missing: action succeeds but no release is created,
       status output is set to 'SKIPPED_MISSING_ARTIFACTS'. When false (default):
       release is created with available components only.
+  selection_report_format:
+    required: false
+    default: "text"
+    description: |-
+      Format for the selection_report output. Options: "text" (default) or "markdown".
+      When set to "markdown", the report is formatted with markdown syntax for use
+      with cloudbees-io/publish-evidence-item@v1 or similar tools.
 
 outputs:
   manifest:
@@ -118,6 +125,7 @@ runs:
         OVERRIDE_VERSION: ${{ inputs.override_version }}
         COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
         SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
+        SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
       run: |
         set -eu
 
@@ -153,17 +161,31 @@ runs:
         # Track components with missing artifacts
         MISSING_COMPONENTS=0
 
-        # Report header
-        echo "Component Selection Report" >> selection_report.txt
-        echo "==========================" >> selection_report.txt
-        echo "" >> selection_report.txt
-        echo "Configuration:" >> selection_report.txt
-        echo "- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}" >> selection_report.txt
-        echo "- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}" >> selection_report.txt
-        echo "- Component overrides: ${COMPONENT_OVERRIDES:-none}" >> selection_report.txt
-        echo "- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}" >> selection_report.txt
-        echo "" >> selection_report.txt
-        echo "Components Selected:" >> selection_report.txt
+        # Report header - format based on SELECTION_REPORT_FORMAT
+        if [ "${SELECTION_REPORT_FORMAT}" = "markdown" ]; then
+          echo "## Component Selection Report" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "### Configuration" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "- **Exclude 'latest' versions:** \`${ALLOW_LATEST_VERSION}\`" >> selection_report.txt
+          echo "- **Artifact label filters:** \`${CB_ARTIFACT_LABELS:-none}\`" >> selection_report.txt
+          echo "- **Component overrides:** \`${COMPONENT_OVERRIDES:-none}\`" >> selection_report.txt
+          echo "- **Legacy override:** \`${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}\`" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "### Components Selected" >> selection_report.txt
+          echo "" >> selection_report.txt
+        else
+          echo "Component Selection Report" >> selection_report.txt
+          echo "==========================" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "Configuration:" >> selection_report.txt
+          echo "- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}" >> selection_report.txt
+          echo "- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}" >> selection_report.txt
+          echo "- Component overrides: ${COMPONENT_OVERRIDES:-none}" >> selection_report.txt
+          echo "- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "Components Selected:" >> selection_report.txt
+        fi
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
@@ -291,11 +313,19 @@ runs:
           ARTIFACT_NAME=$(printf '%s\n' "${BEST}" | jq -r '.artifactName')
           ARTIFACT_VERSION=$(printf '%s\n' "${BEST}" | jq -r '.version')
 
-          # Add to report
-          if [ "${WAS_OVERRIDDEN}" = "true" ]; then
-            printf "- %-50s %s (OVERRIDDEN)\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+          # Add to report - format based on SELECTION_REPORT_FORMAT
+          if [ "${SELECTION_REPORT_FORMAT}" = "markdown" ]; then
+            if [ "${WAS_OVERRIDDEN}" = "true" ]; then
+              echo "- **${ARTIFACT_NAME}**: \`${ARTIFACT_VERSION}\` _(OVERRIDDEN)_" >> selection_report.txt
+            else
+              echo "- **${ARTIFACT_NAME}**: \`${ARTIFACT_VERSION}\`" >> selection_report.txt
+            fi
           else
-            printf "- %-50s %s\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+            if [ "${WAS_OVERRIDDEN}" = "true" ]; then
+              printf "- %-50s %s (OVERRIDDEN)\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+            else
+              printf "- %-50s %s\n" "${ARTIFACT_NAME}" "${ARTIFACT_VERSION}" >> selection_report.txt
+            fi
           fi
 
           # Append as one JSON object per line
@@ -369,13 +399,23 @@ runs:
           echo
         fi
 
-        # Add summary section to report
+        # Add summary section to report - format based on SELECTION_REPORT_FORMAT
         echo "" >> selection_report.txt
-        echo "Summary:" >> selection_report.txt
-        echo "========" >> selection_report.txt
-        echo "Total linked components:     ${TOTAL_COMPONENTS}" >> selection_report.txt
-        echo "Components with artifacts:   ${FOUND_COMPONENTS}" >> selection_report.txt
-        echo "Components without artifacts: ${MISSING_COMPONENTS}" >> selection_report.txt
+        if [ "${SELECTION_REPORT_FORMAT}" = "markdown" ]; then
+          echo "### Summary" >> selection_report.txt
+          echo "" >> selection_report.txt
+          echo "| Metric | Count |" >> selection_report.txt
+          echo "|--------|-------|" >> selection_report.txt
+          echo "| Total linked components | ${TOTAL_COMPONENTS} |" >> selection_report.txt
+          echo "| Components with artifacts | ${FOUND_COMPONENTS} |" >> selection_report.txt
+          echo "| Components without artifacts | ${MISSING_COMPONENTS} |" >> selection_report.txt
+        else
+          echo "Summary:" >> selection_report.txt
+          echo "========" >> selection_report.txt
+          echo "Total linked components:     ${TOTAL_COMPONENTS}" >> selection_report.txt
+          echo "Components with artifacts:   ${FOUND_COMPONENTS}" >> selection_report.txt
+          echo "Components without artifacts: ${MISSING_COMPONENTS}" >> selection_report.txt
+        fi
 
         # Display selection report
         echo "========================================="
@@ -397,6 +437,7 @@ runs:
       shell: sh
       env:
         SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
+        SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
       run: |
         set -eu
 
@@ -417,13 +458,21 @@ runs:
           echo "true" > should_skip.txt
           echo "SKIPPED_MISSING_ARTIFACTS" > final_status.txt
 
-          # Add skip notice to selection report
+          # Add skip notice to selection report - format based on SELECTION_REPORT_FORMAT
           echo "" >> selection_report.txt
-          echo "⚠️  RELEASE SKIPPED" >> selection_report.txt
-          echo "==================" >> selection_report.txt
-          echo "Release creation was skipped because ${MISSING_COMPONENTS} component(s) do not have" >> selection_report.txt
-          echo "matching artifacts and skip_release_on_missing_artifacts is enabled." >> selection_report.txt
-          echo "No release was created." >> selection_report.txt
+          if [ "${SELECTION_REPORT_FORMAT}" = "markdown" ]; then
+            echo "### ⚠️ RELEASE SKIPPED" >> selection_report.txt
+            echo "" >> selection_report.txt
+            echo "Release creation was skipped because **${MISSING_COMPONENTS} component(s)** do not have matching artifacts and \`skip_release_on_missing_artifacts\` is enabled." >> selection_report.txt
+            echo "" >> selection_report.txt
+            echo "_No release was created._" >> selection_report.txt
+          else
+            echo "⚠️  RELEASE SKIPPED" >> selection_report.txt
+            echo "==================" >> selection_report.txt
+            echo "Release creation was skipped because ${MISSING_COMPONENTS} component(s) do not have" >> selection_report.txt
+            echo "matching artifacts and skip_release_on_missing_artifacts is enabled." >> selection_report.txt
+            echo "No release was created." >> selection_report.txt
+          fi
 
           # Update selection report output
           OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
