@@ -382,7 +382,7 @@ runs:
           "manifest": $(cat manifest.json),
           "inputs": {
             "environment": "${CB_ENVIRONMENT}",
-            "manifest": ${MANIFEST_STRING}
+            "deployment_manifest": ${MANIFEST_STRING}
           }
         }
         EOF
