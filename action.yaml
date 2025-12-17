@@ -82,22 +82,22 @@ inputs:
 outputs:
   manifest:
     description: Generated manifest JSON with component artifact versions
-    value: ${{ steps.build-manifest.outputs.manifest }}
+    value: ${{ steps.consolidate-outputs.outputs.manifest }}
   selection_report:
     description: Human-readable report of component selection and overrides
-    value: ${{ steps.build-manifest.outputs.selection_report }}
+    value: ${{ steps.consolidate-outputs.outputs.selection_report }}
   release_id:
     description: Created release ID
-    value: ${{ steps.create-release.outputs.release_id }}
+    value: ${{ steps.consolidate-outputs.outputs.release_id }}
   release_name:
     description: Created release name
-    value: ${{ steps.create-release.outputs.release_name }}
+    value: ${{ steps.consolidate-outputs.outputs.release_name }}
   run_id:
     description: Automation run ID from the release execution
-    value: ${{ steps.wait-release.outputs.run_id }}
+    value: ${{ steps.consolidate-outputs.outputs.run_id }}
   status:
-    description: Final release status (SUCCEEDED, FAILED, TIMEOUT)
-    value: ${{ steps.report-result.outputs.status }}
+    description: Final release status (SUCCEEDED, FAILED, TIMEOUT, SKIPPED_MISSING_ARTIFACTS)
+    value: ${{ steps.consolidate-outputs.outputs.status }}
 
 runs:
   using: composite
@@ -409,10 +409,13 @@ runs:
           echo "true" > should_skip.txt
           echo "SKIPPED_MISSING_ARTIFACTS" > final_status.txt
 
-          # Export status immediately
+          # Export outputs with empty/placeholder values for skipped steps
           OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
           mkdir -p "${OUTPUTS_DIR}"
           echo "SKIPPED_MISSING_ARTIFACTS" > "${OUTPUTS_DIR}/status"
+          echo "" > "${OUTPUTS_DIR}/release_id"
+          echo "" > "${OUTPUTS_DIR}/release_name"
+          echo "" > "${OUTPUTS_DIR}/run_id"
         else
           echo ""
           echo "✅ Proceeding with release creation"
@@ -817,3 +820,50 @@ runs:
           echo "${RESPONSE}"
           echo "✅ Release closed successfully"
         fi
+
+    # Step 8: Consolidate outputs (always runs)
+    - id: consolidate-outputs
+      name: Consolidate all outputs
+      uses: docker://alpine:3.18
+      shell: sh
+      run: |
+        set -eu
+
+        # This step ensures all outputs are available even if earlier steps were skipped
+        # Read from the existing output files and re-export them
+        OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
+        mkdir -p "${OUTPUTS_DIR}"
+
+        # These files should always exist (created by build-manifest or check-skip-condition)
+        if [ -f manifest.json ]; then
+          jq -c . manifest.json > "${OUTPUTS_DIR}/manifest"
+        fi
+
+        if [ -f selection_report.txt ]; then
+          cat selection_report.txt > "${OUTPUTS_DIR}/selection_report"
+        fi
+
+        # These files may be empty if release was skipped
+        if [ -f release_id.txt ]; then
+          cat release_id.txt > "${OUTPUTS_DIR}/release_id"
+        elif [ ! -f "${OUTPUTS_DIR}/release_id" ]; then
+          echo "" > "${OUTPUTS_DIR}/release_id"
+        fi
+
+        if [ -f release_name.txt ]; then
+          cat release_name.txt > "${OUTPUTS_DIR}/release_name"
+        elif [ ! -f "${OUTPUTS_DIR}/release_name" ]; then
+          echo "" > "${OUTPUTS_DIR}/release_name"
+        fi
+
+        # run_id comes from wait-release or check-skip-condition
+        if [ ! -f "${OUTPUTS_DIR}/run_id" ]; then
+          echo "" > "${OUTPUTS_DIR}/run_id"
+        fi
+
+        # Status should always be set by report-result or check-skip-condition
+        if [ ! -f "${OUTPUTS_DIR}/status" ]; then
+          echo "UNKNOWN" > "${OUTPUTS_DIR}/status"
+        fi
+
+        echo "All outputs consolidated successfully"
