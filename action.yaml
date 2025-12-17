@@ -138,18 +138,16 @@ runs:
         : > selection_report.txt
 
         # Report header
-        cat >> selection_report.txt <<'REPORT_HEADER'
-Component Selection Report
-==========================
-
-Configuration:
-- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}
-- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}
-- Component overrides: ${COMPONENT_OVERRIDES:-none}
-- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}
-
-Components Selected:
-REPORT_HEADER
+        echo "Component Selection Report" >> selection_report.txt
+        echo "==========================" >> selection_report.txt
+        echo "" >> selection_report.txt
+        echo "Configuration:" >> selection_report.txt
+        echo "- Exclude 'latest' versions: ${ALLOW_LATEST_VERSION}" >> selection_report.txt
+        echo "- Artifact label filters: ${CB_ARTIFACT_LABELS:-none}" >> selection_report.txt
+        echo "- Component overrides: ${COMPONENT_OVERRIDES:-none}" >> selection_report.txt
+        echo "- Legacy override: ${OVERRIDE_COMPONENT_ID:-none}=${OVERRIDE_VERSION:-none}" >> selection_report.txt
+        echo "" >> selection_report.txt
+        echo "Components Selected:" >> selection_report.txt
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
