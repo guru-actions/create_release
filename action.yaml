@@ -138,7 +138,7 @@ runs:
         : > selection_report.txt
 
         # Report header
-        cat >> selection_report.txt <<REPORT_HEADER
+        cat >> selection_report.txt <<'REPORT_HEADER'
 Component Selection Report
 ==========================
 
