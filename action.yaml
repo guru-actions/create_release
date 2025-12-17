@@ -381,8 +381,7 @@ runs:
           "automationId": "${CB_WORKFLOW_ID}",
           "manifest": $(cat manifest.json),
           "inputs": {
-            "environment": "${CB_ENVIRONMENT}",
-            "deployment_manifest": ${MANIFEST_STRING}
+            "environment": "${CB_ENVIRONMENT}"
           }
         }
         EOF
