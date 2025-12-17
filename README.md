@@ -52,6 +52,7 @@ This action:
 | `close_on_pass` | Automatically close the release if it succeeds | `false` |
 | `close_on_fail` | Automatically close the release if it fails | `false` |
 | `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
+| `selection_report_format` | Format for the `selection_report` output. Options: `text` (default) or `markdown`. When set to `markdown`, the report is formatted with markdown syntax for use with `cloudbees-io/publish-evidence-item@v1` or similar tools. | `text` |
 
 ## Outputs
 
@@ -314,7 +315,7 @@ The `selection_report` output provides a formatted report perfect for audit trai
     cat release-evidence.txt
 ```
 
-**Example Report Output:**
+**Example Report Output (Text Format):**
 ```
 Component Selection Report
 ==========================
@@ -331,6 +332,58 @@ Components Selected:
 - gururepservice/urchin-analytics                   2025.11.10.1-3c8efeb1e313
 - gururepservice/nautilus-inventory                 2025.12.11.1-27b9b22d267c (OVERRIDDEN)
 - codlocker-assets                                  1.39
+```
+
+### Using Markdown Format with CloudBees Evidence Item
+
+You can format the selection report as markdown for use with `cloudbees-io/publish-evidence-item@v1`:
+
+```yaml
+- name: Create release
+  id: release
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-demo-3"
+    selection_report_format: "markdown"  # Enable markdown formatting
+
+- name: Publish release evidence
+  kind: deploy
+  uses: cloudbees-io/publish-evidence-item@v1
+  with:
+    format: MARKDOWN
+    content: ${{ steps.release.outputs.selection_report }}
+```
+
+**Example Markdown Report Output:**
+```markdown
+## Component Selection Report
+
+### Configuration
+
+- **Exclude 'latest' versions:** `false`
+- **Artifact label filters:** `prod=true,stable=true`
+- **Component overrides:** `comp1=1.0,comp2=2.0`
+- **Legacy override:** `none=none`
+
+### Components Selected
+
+- **gururepservice/squid-ui**: `2025.11.20.1-67d3957ed97f`
+- **gururepservice/octopus-payments**: `2025.12.11.1-e1e0acae2a62` _(OVERRIDDEN)_
+- **gururepservice/urchin-analytics**: `2025.11.10.1-3c8efeb1e313`
+- **gururepservice/nautilus-inventory**: `2025.12.11.1-27b9b22d267c` _(OVERRIDDEN)_
+- **codlocker-assets**: `1.39`
+
+### Summary
+
+| Metric | Count |
+|--------|-------|
+| Total linked components | 5 |
+| Components with artifacts | 5 |
+| Components without artifacts | 0 |
 ```
 
 ## How It Works
