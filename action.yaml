@@ -192,8 +192,11 @@ runs:
                   | last
                   | {
                       componentId: .resourceId,
+                      artifactId: .id,
                       artifactName: .name,
-                      version: .version
+                      version: .version,
+                      digest: .digest,
+                      url: .url
                     }
                 end
             ' "artifacts-${COMPONENT_ID}.json")
@@ -209,8 +212,11 @@ runs:
                   | last
                   | {
                       componentId: .resourceId,
+                      artifactId: .id,
                       artifactName: .name,
-                      version: .version
+                      version: .version,
+                      digest: .digest,
+                      url: .url
                     }
                 end
             ' "artifacts-${COMPONENT_ID}.json")
@@ -285,11 +291,38 @@ runs:
           exit 1
         fi
 
-        # Turn the line-delimited JSON objects into the manifest structure
+        # Turn the line-delimited JSON objects into the Unify API manifest structure
         jq -s '{ artifactVersions: . }' artifacts_raw.json > manifest.json
 
-        echo "Generated manifest.json (per-component, concrete versions only, with optional overrides):"
+        echo "Generated manifest.json (Unify API format):"
         cat manifest.json
+        echo
+
+        # Generate release-style manifest for workflow inputs
+        echo "Generating release-style manifest for workflow..."
+        jq -s '
+          reduce .[] as $item ({};
+            # Extract component name from artifact name (everything after last /)
+            ($item.artifactName | split("/") | last) as $compName |
+            . + {
+              ($compName): {
+                deploy: true,
+                id: $item.componentId,
+                ($item.artifactName): {
+                  deploy: true,
+                  name: $item.artifactName,
+                  url: $item.url,
+                  version: $item.version,
+                  digest: $item.digest,
+                  id: $item.artifactId
+                }
+              }
+            }
+          )
+        ' artifacts_raw.json > manifest_release_style.json
+
+        echo "Generated manifest_release_style.json:"
+        cat manifest_release_style.json
         echo
 
         # Display selection report
@@ -308,7 +341,7 @@ runs:
     # Step 2: Create application release via API
     - id: create-release
       name: Create application release via API
-      uses: docker://curlimages/curl:8.8.0
+      uses: docker://badouralix/curl-jq-yq:latest
       shell: sh
       env:
         CB_API_TOKEN: ${{ inputs.cb_api_token }}
@@ -326,9 +359,21 @@ runs:
           exit 1
         fi
 
-        echo "Using manifest.json:"
+        if [ ! -f manifest_release_style.json ]; then
+          echo "ERROR: manifest_release_style.json not found – did the Build manifest step run?"
+          exit 1
+        fi
+
+        echo "Using manifest.json (Unify API format):"
         cat manifest.json
         echo
+
+        echo "Using manifest_release_style.json (for workflow inputs):"
+        cat manifest_release_style.json
+        echo
+
+        # Convert release-style manifest to a JSON string for inputs
+        MANIFEST_STRING=$(jq -c . manifest_release_style.json | jq -R .)
 
         cat > body.json <<EOF
         {
@@ -336,7 +381,8 @@ runs:
           "automationId": "${CB_WORKFLOW_ID}",
           "manifest": $(cat manifest.json),
           "inputs": {
-            "environment": "${CB_ENVIRONMENT}"
+            "environment": "${CB_ENVIRONMENT}",
+            "manifest": ${MANIFEST_STRING}
           }
         }
         EOF
