@@ -51,6 +51,7 @@ This action:
 | `wait_sleep_seconds` | Seconds to sleep between polling attempts | `10` |
 | `close_on_pass` | Automatically close the release if it succeeds | `false` |
 | `close_on_fail` | Automatically close the release if it fails | `false` |
+| `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
 
 ## Outputs
 
@@ -61,7 +62,7 @@ This action:
 | `release_id` | Created release ID |
 | `release_name` | Created release name (e.g., `unify-release-20231208-143022`) |
 | `run_id` | Automation run ID from the release execution |
-| `status` | Final release status (`SUCCEEDED`, `FAILED`, `TIMEOUT`) |
+| `status` | Final release status (`SUCCEEDED`, `FAILED`, `TIMEOUT`, `SKIPPED_MISSING_ARTIFACTS`) |
 
 ## Examples
 
@@ -227,6 +228,39 @@ Automatically close releases regardless of success or failure:
     close_on_pass: "true"  # Auto-close on success
     close_on_fail: "true"  # Auto-close on failure
 ```
+
+### With Skip on Missing Artifacts
+
+Skip release creation if any components don't have matching artifacts (useful for strict deployment pipelines):
+
+```yaml
+- name: Create release with strict artifact requirements
+  id: release
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-prod"
+    cb_artifact_labels: "prod=true"
+    skip_release_on_missing_artifacts: "true"  # Skip if any component missing
+
+- name: Check if release was skipped
+  run: |
+    if [ "${{ steps.release.outputs.status }}" = "SKIPPED_MISSING_ARTIFACTS" ]; then
+      echo "⚠️  Release was skipped due to missing component artifacts"
+      echo "This is expected behavior - action succeeded without creating release"
+    else
+      echo "✅ Release completed with status: ${{ steps.release.outputs.status }}"
+    fi
+```
+
+**Note:** When `skip_release_on_missing_artifacts` is enabled:
+- The action succeeds (exit code 0) even when skipping
+- The `status` output is set to `SKIPPED_MISSING_ARTIFACTS`
+- The selection report still shows which components were found/missing
+- No release is created in CloudBees Unify
 
 ### Using Outputs
 
