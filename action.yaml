@@ -836,6 +836,7 @@ runs:
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         MAX_ATTEMPTS: ${{ inputs.max_wait_attempts }}
         SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
 
@@ -860,8 +861,10 @@ runs:
             -H "Content-Type: application/json"
           )
 
-          echo "Release status response:"
-          echo "${RELEASE_RESP}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Release status response:"
+            echo "${RELEASE_RESP}"
+          fi
 
           ORG_ID=$(printf '%s' "${RELEASE_RESP}" \
             | grep -Eo '"organizationId"\s*:\s*"[^"]*"' \
@@ -899,8 +902,10 @@ runs:
             -H "Content-Type: application/json"
           )
 
-          echo "Automation run response:"
-          echo "${RUN_RESP}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Automation run response:"
+            echo "${RUN_RESP}"
+          fi
 
           RUN_STATUS=$(printf '%s' "${RUN_RESP}" \
             | grep -Eo '"status"\s*:\s*"[^"]*"' \
