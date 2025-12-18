@@ -55,6 +55,7 @@ This action:
 | `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
 | `selection_report_format` | Format for the `selection_report` output. Options: `text` (default) or `markdown`. When set to `markdown`, the report is formatted with markdown syntax for use with `cloudbees-io/publish-evidence-item@v1` or similar tools. | `text` |
 | `prevent_concurrent_releases` | Prevent concurrent releases to the same environment. Options: `false` (default, no check), `skip` (skip release creation if concurrent release detected), `wait` (create release then wait in queue for your turn, up to 5 minutes). Release names automatically include environment for identification. | `false` |
+| `enable_debug_logging` | Enable verbose debug logging for troubleshooting. Shows all releases, queue checks, component artifacts, and selection details. Use when debugging queue issues or artifact selection. | `false` |
 
 ## Outputs
 
@@ -352,6 +353,36 @@ max_wait_attempts: "30"           # Reduce from 60 to 30 if acceptable
 ```
 
 With multiple concurrent releases, API calls multiply. Contact CloudBees if you hit rate limits.
+
+### Troubleshooting with Debug Logging
+
+Enable verbose debug logging when troubleshooting queue issues or artifact selection:
+
+```yaml
+- name: Create release with debug logging
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "wait"
+    enable_debug_logging: "true"  # Shows all releases, queue details, artifacts
+```
+
+**Debug output includes:**
+- Component processing details (artifact selection, filtering)
+- All releases for the environment with status and runId
+- Queue position and blocking releases
+- Override application details
+- Artifact selection logic (including/excluding "latest")
+
+**When to use:**
+- Debugging why queue isn't working
+- Understanding which artifacts are being selected
+- Troubleshooting component override application
+- Investigating concurrent release detection issues
 
 ### Using Outputs
 

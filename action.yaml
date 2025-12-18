@@ -97,6 +97,10 @@ inputs:
       - "false" (default): No check, create and run release immediately
       - "skip": Check before creating; skip release creation if another release is running
       - "wait": Create release, then wait for other releases to complete before starting (max 5 minutes)
+  enable_debug_logging:
+    required: false
+    default: "false"
+    description: Enable verbose debug logging for troubleshooting (shows all releases, queue checks, artifact details)
 
 outputs:
   manifest:
@@ -138,6 +142,7 @@ runs:
         COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
         SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
         SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
 
@@ -201,8 +206,10 @@ runs:
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
-          echo "----------------------------------------"
-          echo "Processing component: ${COMPONENT_ID}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "----------------------------------------"
+            echo "Processing component: ${COMPONENT_ID}"
+          fi
 
           QUERY="filter.latestOnly=false"
           if [ -n "${CB_ARTIFACT_LABELS}" ]; then
@@ -224,15 +231,19 @@ runs:
             -H "Content-Type: application/json" \
             > "artifacts-${COMPONENT_ID}.json"
 
-          echo "Artifacts for component ${COMPONENT_ID} (debug):"
-          jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Artifacts for component ${COMPONENT_ID} (debug):"
+            jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
+          fi
 
           # For this component:
           #  - Conditionally filter out "latest" versions based on ALLOW_LATEST_VERSION
           #  - Sort remaining by audit.when
           #  - Pick the last (most recent)
           if [ "${ALLOW_LATEST_VERSION}" = "true" ]; then
-            echo "Including 'latest' versions in artifact selection"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Including 'latest' versions in artifact selection"
+            fi
             BEST=$(jq '
               .artifacts
               | if length == 0 then
@@ -251,7 +262,9 @@ runs:
                 end
             ' "artifacts-${COMPONENT_ID}.json")
           else
-            echo "Excluding 'latest' versions from artifact selection"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Excluding 'latest' versions from artifact selection"
+            fi
             BEST=$(jq '
               .artifacts
               | map(select(.version != "latest"))
@@ -297,7 +310,9 @@ runs:
               OVERRIDE_COMP_ID="${OVERRIDE_PAIR%%=*}"
               OVERRIDE_VER="${OVERRIDE_PAIR#*=}"
               if [ "${COMPONENT_ID}" = "${OVERRIDE_COMP_ID}" ]; then
-                echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                fi
                 OVERRIDE_VERSION_TO_USE="${OVERRIDE_VER}"
                 break
               fi
@@ -306,20 +321,26 @@ runs:
 
           # Fall back to legacy single override format (backwards compatibility)
           if [ -z "${OVERRIDE_VERSION_TO_USE}" ] && [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
-            echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            fi
             OVERRIDE_VERSION_TO_USE="${OVERRIDE_VERSION}"
           fi
 
           # Apply the override if found
           WAS_OVERRIDDEN="false"
           if [ -n "${OVERRIDE_VERSION_TO_USE}" ]; then
-            echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            fi
             BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION_TO_USE}" '.version = $v')
             WAS_OVERRIDDEN="true"
           fi
 
-          echo "Chosen artifact for component ${COMPONENT_ID}:"
-          echo "${BEST}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Chosen artifact for component ${COMPONENT_ID}:"
+            echo "${BEST}"
+          fi
 
           # Extract artifact details for reporting
           ARTIFACT_NAME=$(printf '%s\n' "${BEST}" | jq -r '.artifactName')
@@ -678,6 +699,7 @@ runs:
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
         QUEUE_CHECK_SLEEP_SECONDS: ${{ inputs.queue_check_sleep_seconds }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
 
@@ -713,20 +735,22 @@ runs:
             -H "Content-Type: application/json" \
             > releases.json
 
-          echo ""
-          echo "DEBUG: Our release name: ${OUR_RELEASE_NAME}"
-          echo "DEBUG: Our release ID: ${OUR_RELEASE_ID}"
-          echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
-          echo ""
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo ""
+            echo "DEBUG: Our release name: ${OUR_RELEASE_NAME}"
+            echo "DEBUG: Our release ID: ${OUR_RELEASE_ID}"
+            echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
+            echo ""
 
-          # Show all releases for this environment
-          echo "DEBUG: All releases for environment ${CB_ENVIRONMENT}:"
-          jq -r --arg env "${CB_ENVIRONMENT}" '
-            .releases[]?
-            | select(.releaseName | contains($env))
-            | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"))"
-          ' releases.json 2>/dev/null || echo "  (none found)"
-          echo ""
+            # Show all releases for this environment
+            echo "DEBUG: All releases for environment ${CB_ENVIRONMENT}:"
+            jq -r --arg env "${CB_ENVIRONMENT}" '
+              .releases[]?
+              | select(.releaseName | contains($env))
+              | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"))"
+            ' releases.json 2>/dev/null || echo "  (none found)"
+            echo ""
+          fi
 
           # Find releases that:
           # 1. Are for same environment (contain env name)
