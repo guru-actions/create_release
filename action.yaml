@@ -708,6 +708,21 @@ runs:
             -H "Content-Type: application/json" \
             > releases.json
 
+          echo ""
+          echo "DEBUG: Our release name: ${OUR_RELEASE_NAME}"
+          echo "DEBUG: Our release ID: ${OUR_RELEASE_ID}"
+          echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
+          echo ""
+
+          # Show all releases for this environment
+          echo "DEBUG: All releases for environment ${CB_ENVIRONMENT}:"
+          jq -r --arg env "${CB_ENVIRONMENT}" '
+            .releases[]?
+            | select(.releaseName | contains($env))
+            | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"))"
+          ' releases.json 2>/dev/null || echo "  (none found)"
+          echo ""
+
           # Find releases that:
           # 1. Are for same environment (contain env name)
           # 2. Are NOT our release (different ID)
