@@ -57,11 +57,15 @@ inputs:
   max_wait_attempts:
     required: false
     default: "60"
-    description: Maximum polling attempts to wait for release completion
+    description: Maximum polling attempts to wait for release completion (release status checks)
   wait_sleep_seconds:
     required: false
     default: "10"
-    description: Seconds to sleep between polling attempts
+    description: Seconds to sleep between release status polling attempts
+  queue_check_sleep_seconds:
+    required: false
+    default: "10"
+    description: Seconds to sleep between queue position checks (wait mode only, first check is immediate)
   close_on_pass:
     required: false
     default: "false"
@@ -673,6 +677,7 @@ runs:
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
+        QUEUE_CHECK_SLEEP_SECONDS: ${{ inputs.queue_check_sleep_seconds }}
       run: |
         set -eu
 
@@ -693,9 +698,9 @@ runs:
 
         echo "Checking queue position for release: ${OUR_RELEASE_NAME}"
         echo "Mode: WAIT - Will wait for releases created before us to complete"
+        echo "Queue check interval: ${QUEUE_CHECK_SLEEP_SECONDS}s (first check is immediate)"
 
         MAX_WAIT_ATTEMPTS=30
-        WAIT_SLEEP=10
         attempt=1
 
         while [ "$attempt" -le "$MAX_WAIT_ATTEMPTS" ]; do
@@ -752,13 +757,14 @@ runs:
 
           if [ "$attempt" -eq "$MAX_WAIT_ATTEMPTS" ]; then
             echo ""
-            echo "❌ ERROR: Timed out waiting for queue (${MAX_WAIT_ATTEMPTS} attempts, $((MAX_WAIT_ATTEMPTS * WAIT_SLEEP / 60)) minutes)"
+            TIMEOUT_MINS=$((MAX_WAIT_ATTEMPTS * QUEUE_CHECK_SLEEP_SECONDS / 60))
+            echo "❌ ERROR: Timed out waiting for queue (${MAX_WAIT_ATTEMPTS} attempts, ${TIMEOUT_MINS} minutes)"
             echo "Releases are still ahead of us in the queue."
             exit 1
           fi
 
-          echo "Waiting ${WAIT_SLEEP} seconds before checking again..."
-          sleep "${WAIT_SLEEP}"
+          echo "Waiting ${QUEUE_CHECK_SLEEP_SECONDS} seconds before checking again..."
+          sleep "${QUEUE_CHECK_SLEEP_SECONDS}"
           attempt=$((attempt + 1))
         done
 

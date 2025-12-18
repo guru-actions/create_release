@@ -47,8 +47,9 @@ This action:
 | `override_component_id` | ⚠️ **Deprecated:** Optional component ID to pin to a specific version (use `component_overrides` instead) | `""` (no override) |
 | `override_version` | ⚠️ **Deprecated:** Optional version to use for overridden component (use `component_overrides` instead) | `""` (no override) |
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
-| `max_wait_attempts` | Maximum polling attempts to wait for release completion | `60` |
-| `wait_sleep_seconds` | Seconds to sleep between polling attempts | `10` |
+| `max_wait_attempts` | Maximum polling attempts to wait for release completion (release status checks) | `60` |
+| `wait_sleep_seconds` | Seconds to sleep between release status polling attempts | `10` |
+| `queue_check_sleep_seconds` | Seconds to sleep between queue position checks (wait mode only, first check is immediate). Increase to reduce API calls. | `10` |
 | `close_on_pass` | Automatically close the release if it succeeds | `false` |
 | `close_on_fail` | Automatically close the release if it fails | `false` |
 | `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
@@ -302,6 +303,7 @@ Prevent multiple releases from running simultaneously to the same environment. T
     cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
     cb_environment: "production"
     prevent_concurrent_releases: "wait"  # Create release, wait in queue, start when ready
+    queue_check_sleep_seconds: "20"      # Optional: Check every 20s instead of 10s to reduce API calls
 ```
 
 **How it works:**
@@ -324,6 +326,32 @@ Prevent multiple releases from running simultaneously to the same environment. T
 - Prevents race conditions when multiple components trigger releases
 - `skip` mode avoids creating unnecessary releases
 - `wait` mode provides automatic queuing
+
+### API Calls and Rate Limiting
+
+The action makes CloudBees API calls for queue checking and release monitoring:
+
+**Queue position checks** (wait mode only):
+- Endpoint: `GET /v3/applications/{appId}/releases`
+- First check: Immediate
+- Subsequent checks: Every `queue_check_sleep_seconds` (default: 10s)
+- Max attempts: 30
+- Total: Up to 30 API calls per release
+
+**Release status checks** (all modes):
+- Endpoints: `GET /v3/applications/{appId}/releases/{id}` + `GET /v1/.../runs/{id}`
+- Frequency: Every `wait_sleep_seconds` (default: 10s)
+- Max attempts: `max_wait_attempts` (default: 60)
+- Total: Up to 120 API calls per release
+
+**To reduce API calls:**
+```yaml
+queue_check_sleep_seconds: "20"  # Check queue every 20s instead of 10s
+wait_sleep_seconds: "20"          # Check release status every 20s instead of 10s
+max_wait_attempts: "30"           # Reduce from 60 to 30 if acceptable
+```
+
+With multiple concurrent releases, API calls multiply. Contact CloudBees if you hit rate limits.
 
 ### Using Outputs
 
