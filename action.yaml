@@ -732,7 +732,7 @@ runs:
           # 1. Are for same environment (contain env name)
           # 2. Are NOT our release (different ID)
           # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
-          # 4. Have started running (have runId) OR are very recent (could be about to start)
+          # 4. Have started running (have runId) OR are in active states (CREATED, PENDING, STARTED, READY_TO_RUN)
           # 5. Are not in terminal state
           BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" '
             .releases[]?
@@ -741,7 +741,7 @@ runs:
             | select(.releaseName < $ourName)
             | select(
                 (.runId != null and .runId != "") or
-                (.status == "CREATED" or .status == "PENDING")
+                (.status == "CREATED" or .status == "PENDING" or .status == "STARTED" or .status == "READY_TO_RUN")
               )
             | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
             | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
