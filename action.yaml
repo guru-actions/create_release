@@ -57,11 +57,15 @@ inputs:
   max_wait_attempts:
     required: false
     default: "60"
-    description: Maximum polling attempts to wait for release completion
+    description: Maximum polling attempts to wait for release completion (release status checks)
   wait_sleep_seconds:
     required: false
     default: "10"
-    description: Seconds to sleep between polling attempts
+    description: Seconds to sleep between release status polling attempts
+  queue_check_sleep_seconds:
+    required: false
+    default: "10"
+    description: Seconds to sleep between queue position checks (wait mode only, first check is immediate)
   close_on_pass:
     required: false
     default: "false"
@@ -85,6 +89,18 @@ inputs:
       Format for the selection_report output. Options: "text" (default) or "markdown".
       When set to "markdown", the report is formatted with markdown syntax for use
       with cloudbees-io/publish-evidence-item@v1 or similar tools.
+  prevent_concurrent_releases:
+    required: false
+    default: "false"
+    description: |-
+      Prevent concurrent releases to the same environment. Options:
+      - "false" (default): No check, create and run release immediately
+      - "skip": Check before creating; skip release creation if another release is running
+      - "wait": Create release, then wait for other releases to complete before starting (max 5 minutes)
+  enable_debug_logging:
+    required: false
+    default: "false"
+    description: Enable verbose debug logging for troubleshooting (shows all releases, queue checks, artifact details)
 
 outputs:
   manifest:
@@ -103,7 +119,7 @@ outputs:
     description: Automation run ID from the release execution
     value: ${{ steps.consolidate-outputs.outputs.run_id }}
   status:
-    description: Final release status (SUCCEEDED, FAILED, TIMEOUT, SKIPPED_MISSING_ARTIFACTS)
+    description: Final release status (SUCCEEDED, FAILED, TIMEOUT, SKIPPED_MISSING_ARTIFACTS, SKIPPED_CONCURRENT_RELEASE)
     value: ${{ steps.consolidate-outputs.outputs.status }}
 
 runs:
@@ -126,6 +142,7 @@ runs:
         COMPONENT_OVERRIDES: ${{ inputs.component_overrides }}
         SKIP_RELEASE_ON_MISSING_ARTIFACTS: ${{ inputs.skip_release_on_missing_artifacts }}
         SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
 
@@ -189,8 +206,10 @@ runs:
 
         # Loop over each component and pick the most recent non-"latest" artifact
         while read -r COMPONENT_ID; do
-          echo "----------------------------------------"
-          echo "Processing component: ${COMPONENT_ID}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "----------------------------------------"
+            echo "Processing component: ${COMPONENT_ID}"
+          fi
 
           QUERY="filter.latestOnly=false"
           if [ -n "${CB_ARTIFACT_LABELS}" ]; then
@@ -212,15 +231,19 @@ runs:
             -H "Content-Type: application/json" \
             > "artifacts-${COMPONENT_ID}.json"
 
-          echo "Artifacts for component ${COMPONENT_ID} (debug):"
-          jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Artifacts for component ${COMPONENT_ID} (debug):"
+            jq '.artifacts | map({componentId: .resourceId, name: .name, version: .version, when: .audit.when})' "artifacts-${COMPONENT_ID}.json"
+          fi
 
           # For this component:
           #  - Conditionally filter out "latest" versions based on ALLOW_LATEST_VERSION
           #  - Sort remaining by audit.when
           #  - Pick the last (most recent)
           if [ "${ALLOW_LATEST_VERSION}" = "true" ]; then
-            echo "Including 'latest' versions in artifact selection"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Including 'latest' versions in artifact selection"
+            fi
             BEST=$(jq '
               .artifacts
               | if length == 0 then
@@ -239,7 +262,9 @@ runs:
                 end
             ' "artifacts-${COMPONENT_ID}.json")
           else
-            echo "Excluding 'latest' versions from artifact selection"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Excluding 'latest' versions from artifact selection"
+            fi
             BEST=$(jq '
               .artifacts
               | map(select(.version != "latest"))
@@ -285,7 +310,9 @@ runs:
               OVERRIDE_COMP_ID="${OVERRIDE_PAIR%%=*}"
               OVERRIDE_VER="${OVERRIDE_PAIR#*=}"
               if [ "${COMPONENT_ID}" = "${OVERRIDE_COMP_ID}" ]; then
-                echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VER} (from component_overrides)"
+                fi
                 OVERRIDE_VERSION_TO_USE="${OVERRIDE_VER}"
                 break
               fi
@@ -294,20 +321,26 @@ runs:
 
           # Fall back to legacy single override format (backwards compatibility)
           if [ -z "${OVERRIDE_VERSION_TO_USE}" ] && [ -n "${OVERRIDE_COMPONENT_ID}" ] && [ -n "${OVERRIDE_VERSION}" ] && [ "${COMPONENT_ID}" = "${OVERRIDE_COMPONENT_ID}" ]; then
-            echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Found override for component ${COMPONENT_ID}: version ${OVERRIDE_VERSION} (from legacy override_component_id/override_version)"
+            fi
             OVERRIDE_VERSION_TO_USE="${OVERRIDE_VERSION}"
           fi
 
           # Apply the override if found
           WAS_OVERRIDDEN="false"
           if [ -n "${OVERRIDE_VERSION_TO_USE}" ]; then
-            echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "Applying override version ${OVERRIDE_VERSION_TO_USE} for component ${COMPONENT_ID}"
+            fi
             BEST=$(printf '%s\n' "${BEST}" | jq --arg v "${OVERRIDE_VERSION_TO_USE}" '.version = $v')
             WAS_OVERRIDDEN="true"
           fi
 
-          echo "Chosen artifact for component ${COMPONENT_ID}:"
-          echo "${BEST}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Chosen artifact for component ${COMPONENT_ID}:"
+            echo "${BEST}"
+          fi
 
           # Extract artifact details for reporting
           ARTIFACT_NAME=$(printf '%s\n' "${BEST}" | jq -r '.artifactName')
@@ -491,7 +524,78 @@ runs:
           echo "false" > should_skip.txt
         fi
 
-    # Step 3: Create application release via API
+    # Step 3: Check for concurrent releases (skip mode only - before create)
+    - id: check-concurrent-skip
+      name: Check for concurrent releases (skip mode)
+      uses: docker://badouralix/curl-jq-yq:latest
+      shell: sh
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ENVIRONMENT: ${{ inputs.cb_environment }}
+        PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
+      run: |
+        set -eu
+
+        # Check if we should skip this step (previous steps already decided to skip)
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping concurrent release check (release already being skipped)"
+          exit 0
+        fi
+
+        # Only run for "skip" mode
+        if [ "${PREVENT_CONCURRENT_RELEASES}" != "skip" ]; then
+          echo "Concurrent release check (skip mode) not enabled, proceeding..."
+          exit 0
+        fi
+
+        echo "Checking for concurrent releases to environment: ${CB_ENVIRONMENT}"
+        echo "Mode: SKIP - Will not create release if concurrent detected"
+
+        curl -sS \
+          "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
+          -H "Authorization: Bearer ${CB_API_TOKEN}" \
+          -H "Content-Type: application/json" \
+          > releases.json
+
+        # Filter for releases that:
+        # 1. Contain the environment name in the release name
+        # 2. Have a runId (workflow has started)
+        # 3. Are not in terminal state
+        RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" '
+          .releases[]?
+          | select(.releaseName | contains($env))
+          | select(.runId != null and .runId != "")
+          | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
+          | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
+        ' releases.json 2>/dev/null || echo "")
+
+        if [ -n "${RUNNING_RELEASES}" ]; then
+          echo "Found running releases for environment ${CB_ENVIRONMENT}:"
+          echo "${RUNNING_RELEASES}"
+          echo ""
+          echo "⚠️  SKIPPING RELEASE CREATION"
+          echo "Reason: Another release is running for environment: ${CB_ENVIRONMENT}"
+          echo ""
+          echo "true" > should_skip.txt
+          echo "SKIPPED_CONCURRENT_RELEASE" > final_status.txt
+
+          # Export outputs
+          OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
+          mkdir -p "${OUTPUTS_DIR}"
+          echo "SKIPPED_CONCURRENT_RELEASE" > "${OUTPUTS_DIR}/status"
+          echo "" > "${OUTPUTS_DIR}/release_id"
+          echo "" > "${OUTPUTS_DIR}/release_name"
+          echo "" > "${OUTPUTS_DIR}/run_id"
+
+          echo "✅ Action succeeded without creating release (concurrent release detected)"
+          exit 0
+        fi
+
+        echo "✅ No concurrent releases detected, proceeding with release creation..."
+
+    # Step 4: Create application release via API
     - id: create-release
       name: Create application release via API
       uses: docker://badouralix/curl-jq-yq:latest
@@ -512,7 +616,9 @@ runs:
           exit 0
         fi
 
-        RELEASE_NAME="${RELEASE_NAME_PREFIX}-$(date -u +%Y%m%d-%H%M%S)"
+        # Always include environment in release name for identification
+        RELEASE_NAME="${RELEASE_NAME_PREFIX}-${CB_ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
+        echo "Generated release name: ${RELEASE_NAME}"
 
         if [ ! -f manifest.json ]; then
           echo "ERROR: manifest.json not found – did the Build manifest step run?"
@@ -581,7 +687,115 @@ runs:
         echo "${RELEASE_ID}" > "${OUTPUTS_DIR}/release_id"
         echo "${RELEASE_NAME}" > "${OUTPUTS_DIR}/release_name"
 
-    # Step 4: Start the release (run workflow)
+    # Step 5: Wait for queue position (wait mode only - after create, before start)
+    - id: check-concurrent-wait
+      name: Wait for queue position (wait mode)
+      uses: docker://badouralix/curl-jq-yq:latest
+      shell: sh
+      env:
+        CB_API_TOKEN: ${{ inputs.cb_api_token }}
+        CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
+        CB_BASE_URL: ${{ inputs.cb_base_url }}
+        CB_ENVIRONMENT: ${{ inputs.cb_environment }}
+        PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
+        QUEUE_CHECK_SLEEP_SECONDS: ${{ inputs.queue_check_sleep_seconds }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
+      run: |
+        set -eu
+
+        # Check if we should skip this step
+        if [ -f should_skip.txt ] && [ "$(cat should_skip.txt)" = "true" ]; then
+          echo "Skipping queue check (release already being skipped)"
+          exit 0
+        fi
+
+        # Only run for "wait" mode
+        if [ "${PREVENT_CONCURRENT_RELEASES}" != "wait" ]; then
+          echo "Queue waiting (wait mode) not enabled, proceeding..."
+          exit 0
+        fi
+
+        OUR_RELEASE_ID=$(cat release_id.txt)
+        OUR_RELEASE_NAME=$(cat release_name.txt)
+
+        echo "Checking queue position for release: ${OUR_RELEASE_NAME}"
+        echo "Mode: WAIT - Will wait for releases created before us to complete"
+        echo "Queue check interval: ${QUEUE_CHECK_SLEEP_SECONDS}s (first check is immediate)"
+
+        MAX_WAIT_ATTEMPTS=30
+        attempt=1
+
+        while [ "$attempt" -le "$MAX_WAIT_ATTEMPTS" ]; do
+          echo ""
+          echo "⏳ Queue check attempt ${attempt}/${MAX_WAIT_ATTEMPTS}..."
+
+          curl -sS \
+            "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
+            -H "Authorization: Bearer ${CB_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            > releases.json
+
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo ""
+            echo "DEBUG: Our release name: ${OUR_RELEASE_NAME}"
+            echo "DEBUG: Our release ID: ${OUR_RELEASE_ID}"
+            echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
+            echo ""
+
+            # Show all releases for this environment
+            echo "DEBUG: All releases for environment ${CB_ENVIRONMENT}:"
+            jq -r --arg env "${CB_ENVIRONMENT}" '
+              .releases[]?
+              | select(.releaseName | contains($env))
+              | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"))"
+            ' releases.json 2>/dev/null || echo "  (none found)"
+            echo ""
+          fi
+
+          # Find releases that:
+          # 1. Are for same environment (contain env name)
+          # 2. Are NOT our release (different ID)
+          # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
+          # 4. Have started running (have runId) OR are in active states (CREATED, PENDING, STARTED, READY_TO_RUN)
+          # 5. Are not in terminal state
+          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" '
+            .releases[]?
+            | select(.releaseName | contains($env))
+            | select(.releaseId != $ourId)
+            | select(.releaseName < $ourName)
+            | select(
+                (.runId != null and .runId != "") or
+                (.status == "CREATED" or .status == "PENDING" or .status == "STARTED" or .status == "READY_TO_RUN")
+              )
+            | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
+            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
+          ' releases.json 2>/dev/null || echo "")
+
+          if [ -z "${BLOCKING_RELEASES}" ]; then
+            echo "✅ No releases ahead of us in queue, we can start now!"
+            break
+          fi
+
+          echo "Found releases ahead of us in queue:"
+          echo "${BLOCKING_RELEASES}"
+
+          if [ "$attempt" -eq "$MAX_WAIT_ATTEMPTS" ]; then
+            echo ""
+            TIMEOUT_MINS=$((MAX_WAIT_ATTEMPTS * QUEUE_CHECK_SLEEP_SECONDS / 60))
+            echo "❌ ERROR: Timed out waiting for queue (${MAX_WAIT_ATTEMPTS} attempts, ${TIMEOUT_MINS} minutes)"
+            echo "Releases are still ahead of us in the queue."
+            exit 1
+          fi
+
+          echo "Waiting ${QUEUE_CHECK_SLEEP_SECONDS} seconds before checking again..."
+          sleep "${QUEUE_CHECK_SLEEP_SECONDS}"
+          attempt=$((attempt + 1))
+        done
+
+        echo ""
+        echo "✅ Our turn! Proceeding to start release..."
+
+    # Step 6: Start the release (run workflow)
     - id: start-release
       name: Start release (run workflow)
       uses: docker://curlimages/curl:8.8.0
@@ -611,7 +825,7 @@ runs:
         echo "Run response:"
         echo "${RESPONSE}"
 
-    # Step 5: Wait for release workflow run to complete (poll automation run)
+    # Step 7: Wait for release workflow run to complete (poll automation run)
     - id: wait-release
       name: Wait for release workflow run to complete
       uses: docker://curlimages/curl:8.8.0
@@ -622,6 +836,7 @@ runs:
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         MAX_ATTEMPTS: ${{ inputs.max_wait_attempts }}
         SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
+        ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
 
@@ -632,7 +847,8 @@ runs:
         fi
 
         RELEASE_ID=$(cat release_id.txt)
-        echo "Waiting for workflow run for release ${RELEASE_ID} to complete..."
+        RELEASE_NAME=$(cat release_name.txt)
+        echo "Waiting for workflow run for release \"${RELEASE_NAME}\" (${RELEASE_ID}) to complete..."
 
         attempt=1
         LAST_RUN_STATUS="UNKNOWN"
@@ -646,8 +862,10 @@ runs:
             -H "Content-Type: application/json"
           )
 
-          echo "Release status response:"
-          echo "${RELEASE_RESP}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Release status response:"
+            echo "${RELEASE_RESP}"
+          fi
 
           ORG_ID=$(printf '%s' "${RELEASE_RESP}" \
             | grep -Eo '"organizationId"\s*:\s*"[^"]*"' \
@@ -685,8 +903,10 @@ runs:
             -H "Content-Type: application/json"
           )
 
-          echo "Automation run response:"
-          echo "${RUN_RESP}"
+          if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+            echo "Automation run response:"
+            echo "${RUN_RESP}"
+          fi
 
           RUN_STATUS=$(printf '%s' "${RUN_RESP}" \
             | grep -Eo '"status"\s*:\s*"[^"]*"' \
@@ -735,7 +955,7 @@ runs:
         fi
         exit 0
 
-    # Step 6: Report final result
+    # Step 8: Report final result
     - id: report-result
       name: Report release result
       uses: docker://curlimages/curl:8.8.0
@@ -743,13 +963,23 @@ runs:
       run: |
         set -eu
 
-        # Check if release was skipped due to missing artifacts
+        # Check if release was skipped (missing artifacts or concurrent release)
         if [ -f final_status.txt ]; then
           FINAL_STATUS=$(cat final_status.txt)
           echo "Release was skipped: ${FINAL_STATUS}"
 
-          # Status was already exported by check-skip-condition step
-          echo "⚠️  Release creation skipped due to missing component artifacts."
+          # Status was already exported by earlier steps
+          case "${FINAL_STATUS}" in
+            SKIPPED_MISSING_ARTIFACTS)
+              echo "⚠️  Release creation skipped due to missing component artifacts."
+              ;;
+            SKIPPED_CONCURRENT_RELEASE)
+              echo "⚠️  Release creation skipped due to concurrent release running."
+              ;;
+            *)
+              echo "⚠️  Release creation skipped: ${FINAL_STATUS}"
+              ;;
+          esac
           echo "Action succeeded without creating a release."
           exit 0
         fi
@@ -782,7 +1012,7 @@ runs:
             ;;
         esac
 
-    # Step 7: Optionally close the release
+    # Step 9: Optionally close the release
     - id: close-release
       name: Close release if configured
       uses: docker://curlimages/curl:8.8.0
@@ -889,7 +1119,7 @@ runs:
           echo "✅ Release closed successfully"
         fi
 
-    # Step 8: Consolidate outputs (always runs)
+    # Step 10: Consolidate outputs (always runs)
     - id: consolidate-outputs
       name: Consolidate all outputs
       uses: docker://badouralix/curl-jq-yq:latest

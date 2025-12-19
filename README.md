@@ -47,12 +47,15 @@ This action:
 | `override_component_id` | ⚠️ **Deprecated:** Optional component ID to pin to a specific version (use `component_overrides` instead) | `""` (no override) |
 | `override_version` | ⚠️ **Deprecated:** Optional version to use for overridden component (use `component_overrides` instead) | `""` (no override) |
 | `release_name_prefix` | Prefix for auto-generated release name | `unify-release` |
-| `max_wait_attempts` | Maximum polling attempts to wait for release completion | `60` |
-| `wait_sleep_seconds` | Seconds to sleep between polling attempts | `10` |
+| `max_wait_attempts` | Maximum polling attempts to wait for release completion (release status checks) | `60` |
+| `wait_sleep_seconds` | Seconds to sleep between release status polling attempts | `10` |
+| `queue_check_sleep_seconds` | Seconds to sleep between queue position checks (wait mode only, first check is immediate). Increase to reduce API calls. | `10` |
 | `close_on_pass` | Automatically close the release if it succeeds | `false` |
 | `close_on_fail` | Automatically close the release if it fails | `false` |
 | `skip_release_on_missing_artifacts` | Skip release creation if any linked components don't have matching artifacts. When `true` and components are missing: action succeeds but no release is created, status output is set to `SKIPPED_MISSING_ARTIFACTS`. When `false` (default): release is created with available components only. | `false` |
 | `selection_report_format` | Format for the `selection_report` output. Options: `text` (default) or `markdown`. When set to `markdown`, the report is formatted with markdown syntax for use with `cloudbees-io/publish-evidence-item@v1` or similar tools. | `text` |
+| `prevent_concurrent_releases` | Prevent concurrent releases to the same environment. Options: `false` (default, no check), `skip` (skip release creation if concurrent release detected), `wait` (create release then wait in queue for your turn, up to 5 minutes). Release names automatically include environment for identification. | `false` |
+| `enable_debug_logging` | Enable verbose debug logging for troubleshooting. Shows all releases, queue checks, component artifacts, and selection details. Use when debugging queue issues or artifact selection. | `false` |
 
 ## Outputs
 
@@ -61,9 +64,9 @@ This action:
 | `manifest` | Generated manifest JSON with component artifact versions |
 | `selection_report` | Human-readable report showing component selection and overrides |
 | `release_id` | Created release ID |
-| `release_name` | Created release name (e.g., `unify-release-20231208-143022`) |
+| `release_name` | Created release name (e.g., `unify-release-production-20231208-143022` - now includes environment) |
 | `run_id` | Automation run ID from the release execution |
-| `status` | Final release status (`SUCCEEDED`, `FAILED`, `TIMEOUT`, `SKIPPED_MISSING_ARTIFACTS`) |
+| `status` | Final release status (`SUCCEEDED`, `FAILED`, `TIMEOUT`, `SKIPPED_MISSING_ARTIFACTS`, `SKIPPED_CONCURRENT_RELEASE`) |
 
 ## Examples
 
@@ -263,6 +266,124 @@ Skip release creation if any components don't have matching artifacts (useful fo
 - The selection report still shows which components were found/missing
 - No release is created in CloudBees Unify
 
+### With Concurrent Release Prevention
+
+Prevent multiple releases from running simultaneously to the same environment. This is useful when multiple components might trigger releases concurrently:
+
+**Skip if concurrent release (don't create):**
+```yaml
+- name: Create release (skip if another running)
+  id: release
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "skip"  # Skip and succeed if concurrent
+
+- name: Check if release was skipped
+  run: |
+    if [ "${{ steps.release.outputs.status }}" = "SKIPPED_CONCURRENT_RELEASE" ]; then
+      echo "⚠️  Release was skipped - another release is running"
+      echo "This is expected behavior - action succeeded without creating release"
+    else
+      echo "✅ Release completed with status: ${{ steps.release.outputs.status }}"
+    fi
+```
+
+**Wait in queue (FIFO ordering):**
+```yaml
+- name: Create release (wait for your turn in queue)
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "wait"  # Create release, wait in queue, start when ready
+    queue_check_sleep_seconds: "20"      # Optional: Check every 20s instead of 10s to reduce API calls
+```
+
+**How it works:**
+
+**Skip mode:**
+- Checks for running releases BEFORE creating
+- If found: Skips creation, succeeds with `SKIPPED_CONCURRENT_RELEASE`
+- If clear: Creates and starts release normally
+
+**Wait mode:**
+- Always creates the release (adds you to the queue)
+- Checks for OTHER releases created before you
+- Waits for all earlier releases to complete (FIFO ordering)
+- Then starts your release when it's your turn
+- Timeout: 5 minutes (30 checks × 10 seconds)
+
+**Benefits:**
+- Release names include environment for identification (e.g., `release-production-20231208-143022`)
+- FIFO queue ordering ensures releases start in the order they were created
+- Prevents race conditions when multiple components trigger releases
+- `skip` mode avoids creating unnecessary releases
+- `wait` mode provides automatic queuing
+
+### API Calls and Rate Limiting
+
+The action makes CloudBees API calls for queue checking and release monitoring:
+
+**Queue position checks** (wait mode only):
+- Endpoint: `GET /v3/applications/{appId}/releases`
+- First check: Immediate
+- Subsequent checks: Every `queue_check_sleep_seconds` (default: 10s)
+- Max attempts: 30
+- Total: Up to 30 API calls per release
+
+**Release status checks** (all modes):
+- Endpoints: `GET /v3/applications/{appId}/releases/{id}` + `GET /v1/.../runs/{id}`
+- Frequency: Every `wait_sleep_seconds` (default: 10s)
+- Max attempts: `max_wait_attempts` (default: 60)
+- Total: Up to 120 API calls per release
+
+**To reduce API calls:**
+```yaml
+queue_check_sleep_seconds: "20"  # Check queue every 20s instead of 10s
+wait_sleep_seconds: "20"          # Check release status every 20s instead of 10s
+max_wait_attempts: "30"           # Reduce from 60 to 30 if acceptable
+```
+
+With multiple concurrent releases, API calls multiply. Contact CloudBees if you hit rate limits.
+
+### Troubleshooting with Debug Logging
+
+Enable verbose debug logging when troubleshooting queue issues or artifact selection:
+
+```yaml
+- name: Create release with debug logging
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "wait"
+    enable_debug_logging: "true"  # Shows all releases, queue details, artifacts
+```
+
+**Debug output includes:**
+- Component processing details (artifact selection, filtering)
+- All releases for the environment with status and runId
+- Queue position and blocking releases
+- Override application details
+- Artifact selection logic (including/excluding "latest")
+
+**When to use:**
+- Debugging why queue isn't working
+- Understanding which artifacts are being selected
+- Troubleshooting component override application
+- Investigating concurrent release detection issues
+
 ### Using Outputs
 
 Access the outputs from the action:
@@ -407,9 +528,11 @@ The action fetches the application's linked components and retrieves the most re
 ### 2. Create Release
 
 POSTs to the CloudBees Unify API to create a new release with:
-- Auto-generated release name (e.g., `unify-release-20231208-143022`)
+- Auto-generated release name including environment (e.g., `unify-release-production-20231208-143022`)
 - The manifest from step 1
 - The target environment as an input parameter
+
+**Note:** Release names now automatically include the environment name for easier identification and to support concurrent release prevention.
 
 ### 3. Start Release
 
