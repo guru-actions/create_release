@@ -847,7 +847,8 @@ runs:
         fi
 
         RELEASE_ID=$(cat release_id.txt)
-        echo "Waiting for workflow run for release ${RELEASE_ID} to complete..."
+        RELEASE_NAME=$(cat release_name.txt)
+        echo "Waiting for workflow run for release \"${RELEASE_NAME}\" (${RELEASE_ID}) to complete..."
 
         attempt=1
         LAST_RUN_STATUS="UNKNOWN"
