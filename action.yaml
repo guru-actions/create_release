@@ -180,38 +180,38 @@ runs:
             return
           fi
 
-          # Extract step name and save curl arguments
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-
-          # Parse curl arguments to extract method and URL
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
 
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Make API call with header capture using saved curl args
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
 
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
@@ -633,48 +633,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
@@ -755,48 +771,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
@@ -897,48 +929,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
@@ -1051,48 +1099,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
@@ -1133,48 +1197,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
@@ -1369,48 +1449,64 @@ runs:
         # API diagnostics wrapper function
         api_call() {
           if [ "${ENABLE_API_DIAGNOSTICS}" != "true" ]; then
+            # Just run curl normally
             curl "$@"
             return
           fi
+
+          # Extract step name
           local step_name="$1"
           shift
 
-          # Save all curl arguments before parsing
-          local curl_args="$@"
-
+          # Extract method and endpoint for logging (don't consume args)
           local method="GET"
           local endpoint=""
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              -X) method="$2"; shift 2 ;;
-              http*) endpoint="$1"; shift ;;
-              *) shift ;;
+          local i
+          for i in "$@"; do
+            case "$i" in
+              -X) method="$2" ;;
+              http*) endpoint="$i" ;;
             esac
           done
+
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Make API call with header capture
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+
+          echo "DEBUG: Running curl with args: $@" >&2
+
+          if curl -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
             http_code="ERROR"
+            echo "DEBUG: Curl failed, error:" >&2
+            cat /tmp/curl_error.txt >&2
             local error_msg=$(cat /tmp/curl_error.txt 2>/dev/null | tr '\n' ' ' | tr ',' ' ')
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},,,,,${error_msg}" >> api_diagnostics.csv
             rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
             return 1
           fi
+
           local end_time=$(date +%s%3N 2>/dev/null || echo "0")
           local duration=$((end_time - start_time))
+
+          # Extract rate limit headers
           local rate_limit=$(grep -i "x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_remaining=$(grep -i "x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
           local rate_reset=$(grep -i "x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+
+          # Log to CSV
           echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo "[API Diagnostics] ${method} ${endpoint} - Status: ${http_code}, Rate Limit: ${rate_remaining}/${rate_limit}"
           fi
+
           rm -f "$temp_headers" "$temp_body" /tmp/http_code.txt /tmp/curl_error.txt
         }
 
