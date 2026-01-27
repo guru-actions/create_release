@@ -268,6 +268,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -280,6 +285,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -773,6 +784,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -785,6 +801,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -958,6 +980,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -970,6 +997,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1163,6 +1196,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -1175,6 +1213,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1380,6 +1424,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -1392,6 +1441,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1525,6 +1580,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -1537,6 +1597,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1824,6 +1890,11 @@ runs:
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
 
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             # Display rate limit info
             if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
               echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
@@ -1836,6 +1907,12 @@ runs:
             fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+
+            # Print entire CSV to logs (so it's visible even if workflow fails)
+            echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
+            cat api_diagnostics.csv >&2
+            echo "  [END API DIAGNOSTICS CSV]" >&2
+
             echo "  [API] ERROR: curl failed" >&2
           fi
 
