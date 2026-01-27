@@ -1265,33 +1265,33 @@ runs:
             echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
             echo ""
 
-            # Show all releases for this environment
+            # Show all releases for this environment with full details
             echo "DEBUG: All releases for environment ${CB_ENVIRONMENT}:"
             jq -r --arg env "${CB_ENVIRONMENT}" '
               .releases[]?
               | select(.releaseName | contains($env))
-              | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"))"
+              | "  - \(.releaseName) (ID: \(.releaseId), Status: \(.status), RunID: \(.runId // "none"), Created: \(.createdAt // .creationTime // "unknown"))"
             ' releases.json 2>/dev/null || echo "  (none found)"
             echo ""
           fi
 
-          # Find releases that:
+          # Find releases that should block us (FIFO queue based on creation order):
           # 1. Are for same environment (contain env name)
           # 2. Are NOT our release (different ID)
           # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
-          # 4. Have started running (have runId) OR are in active states (CREATED, PENDING, STARTED, READY_TO_RUN)
-          # 5. Are not in terminal state
+          # 4. Are NOT in terminal state (still active or pending)
+          #
+          # KEY CHANGE: We now wait for ANY non-terminal release created before us,
+          # regardless of whether it has started (runId) or its specific status.
+          # This prevents race conditions where multiple releases check simultaneously
+          # and both think they can start. Ensures strict FIFO ordering.
           BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" '
             .releases[]?
             | select(.releaseName | contains($env))
             | select(.releaseId != $ourId)
             | select(.releaseName < $ourName)
-            | select(
-                (.runId != null and .runId != "") or
-                (.status == "CREATED" or .status == "PENDING" or .status == "STARTED" or .status == "READY_TO_RUN")
-              )
             | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
-            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
+            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), Created: \(.createdAt // "N/A"))"
           ' releases.json 2>/dev/null || echo "")
 
           if [ -z "${BLOCKING_RELEASES}" ]; then
