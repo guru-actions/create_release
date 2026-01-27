@@ -228,8 +228,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -686,8 +695,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -824,8 +842,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -982,8 +1009,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -1152,8 +1188,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -1250,8 +1295,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
@@ -1502,8 +1556,17 @@ runs:
             done
 
             echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+
+            # Always display rate limit info when diagnostics enabled
+            if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
+              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+            fi
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
+            fi
           else
             echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "  [API] ERROR: curl failed" >&2
           fi
 
           rm -f "$temp_headers" "$temp_body"
