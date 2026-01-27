@@ -180,9 +180,13 @@ runs:
             return
           fi
 
-          # Extract parameters for logging
+          # Extract step name and save curl arguments
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
 
@@ -195,18 +199,15 @@ runs:
             esac
           done
 
-          # Reset args for actual curl call
-          set -- "$@"
-
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Make API call with header capture
+          # Make API call with header capture using saved curl args
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
 
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -637,6 +638,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -646,13 +651,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -756,6 +760,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -765,13 +773,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -895,6 +902,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -904,13 +915,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -1046,6 +1056,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -1055,13 +1069,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -1125,6 +1138,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -1134,13 +1151,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
@@ -1358,6 +1374,10 @@ runs:
           fi
           local step_name="$1"
           shift
+
+          # Save all curl arguments before parsing
+          local curl_args="$@"
+
           local method="GET"
           local endpoint=""
           while [ $# -gt 0 ]; do
@@ -1367,13 +1387,12 @@ runs:
               *) shift ;;
             esac
           done
-          set -- "$@"
           local start_time=$(date +%s%3N 2>/dev/null || echo "0")
           local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           local temp_headers=$(mktemp)
           local temp_body=$(mktemp)
           local http_code
-          if curl -sS -D "$temp_headers" -o "$temp_body" -w "%{http_code}" "$@" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
+          if eval "curl -sS -D \"$temp_headers\" -o \"$temp_body\" -w \"%{http_code}\" $curl_args" > /tmp/http_code.txt 2>/tmp/curl_error.txt; then
             http_code=$(cat /tmp/http_code.txt)
             cat "$temp_body"
           else
