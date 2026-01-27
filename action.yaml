@@ -244,11 +244,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -735,11 +748,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -906,11 +932,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -1097,11 +1136,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -1300,11 +1352,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -1431,11 +1496,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
@@ -1716,11 +1794,24 @@ runs:
             local gh_rate_remaining=""
             local gh_rate_reset=""
             if [ -n "${GITHUB_TOKEN:-}" ]; then
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] Checking GitHub rate limits..." >&2
+              fi
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
+              fi
               if [ -n "$gh_response" ]; then
                 gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
                 gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
+                fi
+              fi
+            else
+              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
               fi
             fi
 
