@@ -105,6 +105,10 @@ inputs:
     required: false
     default: "false"
     description: Enable API call diagnostics - tracks all CloudBees API calls with timestamps, status codes, and rate limit headers, outputs to CSV for evidence
+  github_token:
+    required: false
+    default: ""
+    description: GitHub token to check GitHub API rate limits after each CloudBees API call (for diagnostics)
 
 outputs:
   manifest:
@@ -144,7 +148,7 @@ runs:
 
         if [ "${ENABLE_API_DIAGNOSTICS}" = "true" ]; then
           echo "API diagnostics enabled - initializing CSV file"
-          echo "timestamp,step,endpoint,method,http_status,rate_limit_limit,rate_limit_remaining,rate_limit_reset,duration_ms,error" > api_diagnostics.csv
+          echo "timestamp,step,endpoint,method,http_status,cb_rate_limit,cb_rate_remaining,cb_rate_reset,duration_ms,gh_rate_limit,gh_rate_remaining,gh_rate_reset,error" > api_diagnostics.csv
           echo "✅ API diagnostics CSV initialized"
         else
           echo "API diagnostics disabled (enable_api_diagnostics=false)"
@@ -169,6 +173,7 @@ runs:
         SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -eu
 
@@ -198,10 +203,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -227,17 +239,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -635,6 +663,7 @@ runs:
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
@@ -665,10 +694,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -694,17 +730,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -782,6 +834,7 @@ runs:
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         RELEASE_NAME_PREFIX: ${{ inputs.release_name_prefix }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
@@ -812,10 +865,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -841,17 +901,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -950,6 +1026,7 @@ runs:
         QUEUE_CHECK_SLEEP_SECONDS: ${{ inputs.queue_check_sleep_seconds }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -eu
 
@@ -979,10 +1056,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -1008,17 +1092,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1128,6 +1228,7 @@ runs:
         CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
@@ -1158,10 +1259,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -1187,17 +1295,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1236,6 +1360,7 @@ runs:
         SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -eu
 
@@ -1265,10 +1390,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -1294,17 +1426,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
@@ -1496,6 +1644,7 @@ runs:
         CLOSE_ON_PASS: ${{ inputs.close_on_pass }}
         CLOSE_ON_FAIL: ${{ inputs.close_on_fail }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
@@ -1526,10 +1675,17 @@ runs:
             # Extract HTTP status from headers
             local http_code=$(head -n1 "$temp_headers" | cut -d' ' -f2)
 
-            # Extract rate limit headers
-            local rate_limit=$(grep -i "^x-ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_remaining=$(grep -i "^x-ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
-            local rate_reset=$(grep -i "^x-ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            # Debug: show all headers if debug logging enabled
+            if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
+              echo "  [DEBUG] Response headers:" >&2
+              cat "$temp_headers" >&2
+              echo "  [DEBUG] ---" >&2
+            fi
+
+            # Extract rate limit headers (try multiple possible header names)
+            local rate_limit=$(grep -iE "^(x-)?ratelimit-limit:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_remaining=$(grep -iE "^(x-)?ratelimit-remaining:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
+            local rate_reset=$(grep -iE "^(x-)?ratelimit-reset:" "$temp_headers" | tail -1 | cut -d: -f2 | tr -d ' \r\n' || echo "")
 
             local end_time=$(date +%s%3N 2>/dev/null || echo "0")
             local duration=$((end_time - start_time))
@@ -1555,17 +1711,33 @@ runs:
               fi
             done
 
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
+            # Check GitHub rate limits if token provided
+            local gh_rate_limit=""
+            local gh_rate_remaining=""
+            local gh_rate_reset=""
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>/dev/null || echo "")
+              if [ -n "$gh_response" ]; then
+                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
+                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+              fi
+            fi
 
-            # Always display rate limit info when diagnostics enabled
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+
+            # Display rate limit info
+            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
+              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
+            fi
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
-              echo "  [API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
+              echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
             if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
             echo "  [API] ERROR: curl failed" >&2
           fi
 
