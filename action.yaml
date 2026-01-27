@@ -252,9 +252,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -756,9 +757,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -940,9 +942,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -1144,9 +1147,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -1360,9 +1364,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -1504,9 +1509,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
@@ -1802,9 +1808,10 @@ runs:
                 echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
               fi
               if [ -n "$gh_response" ]; then
-                gh_rate_limit=$(echo "$gh_response" | grep -o '"limit":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_remaining=$(echo "$gh_response" | grep -o '"remaining":[0-9]*' | head -1 | cut -d: -f2)
-                gh_rate_reset=$(echo "$gh_response" | grep -o '"reset":[0-9]*' | head -1 | cut -d: -f2)
+                # Extract from the "rate" object at the end of the JSON
+                gh_rate_limit=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"limit"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_remaining=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"remaining"' | grep -o '[0-9]\+' | head -1)
+                gh_rate_reset=$(echo "$gh_response" | grep -A3 '"rate":' | grep '"reset"' | grep -o '[0-9]\+' | head -1)
                 if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
                   echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
                 fi
