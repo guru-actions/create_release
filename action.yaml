@@ -148,7 +148,7 @@ runs:
 
         if [ "${ENABLE_API_DIAGNOSTICS}" = "true" ]; then
           echo "API diagnostics enabled - initializing CSV file"
-          echo "timestamp,step,endpoint,method,http_status,cb_rate_limit,cb_rate_remaining,cb_rate_reset,duration_ms,gh_rate_limit,gh_rate_remaining,gh_rate_reset,error" > api_diagnostics.csv
+          echo "timestamp,step,endpoint,method,http_status,cb_rate_limit,cb_rate_remaining,cb_rate_reset,duration_ms,error" > api_diagnostics.csv
           echo "✅ API diagnostics CSV initialized"
         else
           echo "API diagnostics disabled (enable_api_diagnostics=false)"
@@ -239,51 +239,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -291,7 +254,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -762,51 +725,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -814,7 +740,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -965,51 +891,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -1017,7 +906,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -1188,51 +1077,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -1240,7 +1092,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -1423,51 +1275,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -1475,7 +1290,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -1586,51 +1401,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -1638,7 +1416,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
@@ -1903,51 +1681,14 @@ runs:
               fi
             done
 
-            # Check GitHub rate limits if token provided
-            local gh_rate_limit=""
-            local gh_rate_remaining=""
-            local gh_rate_reset=""
-            if [ -n "${GITHUB_TOKEN:-}" ]; then
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] Checking GitHub rate limits..." >&2
-              fi
-              local gh_response=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/rate_limit 2>&1)
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GitHub API response: ${gh_response}" >&2
-              fi
-              if [ -n "$gh_response" ]; then
-                # Extract from the "rate" object - use jq if available, fallback to grep
-                if command -v jq >/dev/null 2>&1; then
-                  gh_rate_limit=$(echo "$gh_response" | jq -r '.rate.limit // .resources.core.limit // empty' 2>/dev/null)
-                  gh_rate_remaining=$(echo "$gh_response" | jq -r '.rate.remaining // .resources.core.remaining // empty' 2>/dev/null)
-                  gh_rate_reset=$(echo "$gh_response" | jq -r '.rate.reset // .resources.core.reset // empty' 2>/dev/null)
-                else
-                  # Fallback: extract from last 500 chars (where "rate" object is at end)
-                  gh_rate_limit=$(echo "$gh_response" | tail -c 500 | grep -o '"limit":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_remaining=$(echo "$gh_response" | tail -c 500 | grep -o '"remaining":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                  gh_rate_reset=$(echo "$gh_response" | tail -c 500 | grep -o '"reset":[0-9]\+' | tail -1 | grep -o '[0-9]\+')
-                fi
-                if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                  echo "  [DEBUG] Extracted: limit=$gh_rate_limit remaining=$gh_rate_remaining reset=$gh_rate_reset" >&2
-                fi
-              fi
-            else
-              if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
-                echo "  [DEBUG] GITHUB_TOKEN not set, skipping GitHub rate limit check" >&2
-              fi
-            fi
-
-            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration},${gh_rate_limit},${gh_rate_remaining},${gh_rate_reset}," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},${endpoint},${method},${http_code},${rate_limit},${rate_remaining},${rate_reset},${duration}," >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
             cat api_diagnostics.csv >&2
             echo "  [END API DIAGNOSTICS CSV]" >&2
 
-            # Display rate limit info
-            if [ -n "$gh_rate_remaining" ] && [ -n "$gh_rate_limit" ]; then
-              echo "  [GitHub API] Rate Limit: ${gh_rate_remaining}/${gh_rate_limit} remaining (resets at ${gh_rate_reset})" >&2
-            fi
+            # Display rate limit info (CloudBees only)
             if [ -n "$rate_remaining" ] && [ -n "$rate_limit" ]; then
               echo "  [CloudBees API] Rate Limit: ${rate_remaining}/${rate_limit} remaining (resets at ${rate_reset})" >&2
             fi
@@ -1955,7 +1696,7 @@ runs:
               echo "  [API] ${method} ${endpoint} -> HTTP ${http_code} (${duration}ms)" >&2
             fi
           else
-            echo "${timestamp},${step_name},,,ERROR,,,,,,,," >> api_diagnostics.csv
+            echo "${timestamp},${step_name},,,ERROR,,,,,ERROR" >> api_diagnostics.csv
 
             # Print entire CSV to logs (so it's visible even if workflow fails)
             echo "  [API DIAGNOSTICS CSV - CURRENT STATE]" >&2
