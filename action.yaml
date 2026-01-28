@@ -927,7 +927,8 @@ runs:
         fi
 
         # Always include environment in release name for identification
-        RELEASE_NAME="${RELEASE_NAME_PREFIX}-${CB_ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
+        # Add random suffix to prevent collisions when creating multiple releases per second
+        RELEASE_NAME="${RELEASE_NAME_PREFIX}-${CB_ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)-$RANDOM"
         echo "Generated release name: ${RELEASE_NAME}"
 
         if [ ! -f manifest.json ]; then
