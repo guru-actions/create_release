@@ -109,6 +109,14 @@ inputs:
     required: false
     default: ""
     description: GitHub token to check GitHub API rate limits after each CloudBees API call (for diagnostics)
+  smart_tests_component:
+    required: false
+    default: ""
+    description: Component name for Smart Tests E2E integration (e.g. 'jellyfish-notifications'). Passed to workflow for E2E test suite naming.
+  smart_tests_build_name:
+    required: false
+    default: ""
+    description: Smart Tests build name from component workflow (e.g. 'cb-squidstack-jellyfish-notifications-UUID'). Used to link E2E tests to component build.
 
 outputs:
   manifest:
@@ -826,6 +834,8 @@ runs:
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
+        SMART_TESTS_COMPONENT: ${{ inputs.smart_tests_component }}
+        SMART_TESTS_BUILD_NAME: ${{ inputs.smart_tests_build_name }}
       run: |
         set -eu
 
@@ -958,7 +968,9 @@ runs:
           "automationId": "${CB_WORKFLOW_ID}",
           "manifest": $(cat manifest.json),
           "inputs": {
-            "environment": "${CB_ENVIRONMENT}"
+            "environment": "${CB_ENVIRONMENT}",
+            "smart_tests_component": "${SMART_TESTS_COMPONENT}",
+            "smart_tests_build_name": "${SMART_TESTS_BUILD_NAME}"
           }
         }
         EOF
