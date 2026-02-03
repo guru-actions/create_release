@@ -979,16 +979,22 @@ runs:
         # Convert release-style manifest to a JSON string for inputs
         MANIFEST_STRING=$(jq -c . manifest_release_style.json | jq -R .)
 
+        # Build inputs JSON conditionally - only include Smart Tests fields if they have values
+        INPUTS_JSON=$(jq -n \
+          --arg env "${CB_ENVIRONMENT}" \
+          --arg st_component "${SMART_TESTS_COMPONENT}" \
+          --arg st_build "${SMART_TESTS_BUILD_NAME}" \
+          '{environment: $env} |
+          if $st_component != "" then .smart_tests_component = $st_component else . end |
+          if $st_build != "" then .smart_tests_build_name = $st_build else . end'
+        )
+
         cat > body.json <<EOF
         {
           "releaseName": "${RELEASE_NAME}",
           "automationId": "${CB_WORKFLOW_ID}",
           "manifest": $(cat manifest.json),
-          "inputs": {
-            "environment": "${CB_ENVIRONMENT}",
-            "smart_tests_component": "${SMART_TESTS_COMPONENT}",
-            "smart_tests_build_name": "${SMART_TESTS_BUILD_NAME}"
-          }
+          "inputs": ${INPUTS_JSON}
         }
         EOF
 
