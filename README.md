@@ -56,6 +56,10 @@ This action:
 | `selection_report_format` | Format for the `selection_report` output. Options: `text` (default) or `markdown`. When set to `markdown`, the report is formatted with markdown syntax for use with `cloudbees-io/publish-evidence-item@v1` or similar tools. | `text` |
 | `prevent_concurrent_releases` | Prevent concurrent releases to the same environment. Options: `false` (default, no check), `skip` (skip release creation if concurrent release detected), `wait` (create release then wait in queue for your turn, up to 5 minutes). Release names automatically include environment for identification. | `false` |
 | `enable_debug_logging` | Enable verbose debug logging for troubleshooting. Shows all releases, queue checks, component artifacts, and selection details. Use when debugging queue issues or artifact selection. | `false` |
+| `enable_api_diagnostics` | Enable API call diagnostics - tracks all CloudBees API calls with timestamps, HTTP status codes, and rate limit headers. Outputs to CSV for evidence and audit trails. Use with the `api_diagnostics_csv` output. | `false` |
+| `smart_tests_component` | Component name for Smart Tests E2E integration (e.g., `jellyfish-notifications`). Passed to the release workflow for E2E test suite naming. Only included in release inputs when non-empty. | `""` (empty) |
+| `smart_tests_build_name` | Smart Tests build name from component workflow (e.g., `cb-squidstack-jellyfish-notifications-UUID`). Used to link E2E tests to component build. Only included in release inputs when non-empty. | `""` (empty) |
+| `ignore_releases` | Comma-delimited list of release names to ignore when checking for concurrent releases. Useful when a release is stuck in Unify and cannot be closed/deleted. Example: `"rel-test-sb--squid-demo-3-20260202-114850-23326,another-stuck-release"` | `""` (empty) |
 
 ## Outputs
 
@@ -67,6 +71,7 @@ This action:
 | `release_name` | Created release name (e.g., `unify-release-production-20231208-143022` - now includes environment) |
 | `run_id` | Automation run ID from the release execution |
 | `status` | Final release status (`SUCCEEDED`, `FAILED`, `TIMEOUT`, `SKIPPED_MISSING_ARTIFACTS`, `SKIPPED_CONCURRENT_RELEASE`) |
+| `api_diagnostics_csv` | CSV file containing API call diagnostics (when `enable_api_diagnostics` is `true`). Includes timestamp, endpoint, HTTP status, rate limits, and duration for each CloudBees API call. |
 
 ## Examples
 
@@ -383,6 +388,98 @@ Enable verbose debug logging when troubleshooting queue issues or artifact selec
 - Understanding which artifacts are being selected
 - Troubleshooting component override application
 - Investigating concurrent release detection issues
+
+### API Diagnostics for Audit Trails
+
+Enable API diagnostics to track all CloudBees API calls made during release creation. Useful for audit trails, performance analysis, and rate limit monitoring:
+
+```yaml
+- name: Create release with API diagnostics
+  id: release
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    enable_api_diagnostics: "true"  # Track all API calls
+
+- name: Save API diagnostics for audit
+  run: |
+    echo "API Diagnostics CSV saved to: ${{ steps.release.outputs.api_diagnostics_csv }}"
+    cat "${{ steps.release.outputs.api_diagnostics_csv }}"
+```
+
+**CSV output includes:**
+- Timestamp of each API call
+- Endpoint and HTTP method
+- HTTP status code
+- CloudBees rate limit info (limit, remaining, reset time)
+- Call duration in milliseconds
+- Error indicator if call failed
+
+**When to use:**
+- Audit trails for compliance
+- Performance analysis and optimization
+- Rate limit monitoring
+- Troubleshooting API failures
+
+### Smart Tests Integration
+
+Pass Smart Tests parameters to your release workflow for E2E test integration:
+
+```yaml
+- name: Create release with Smart Tests
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "squid-demo-3"
+    smart_tests_component: "jellyfish-notifications"  # Component being tested
+    smart_tests_build_name: "cb-squidstack-jellyfish-notifications-abc123"  # Build name from component workflow
+```
+
+**How it works:**
+- Parameters are only included in release inputs when non-empty
+- Release workflow receives these as `inputs.smart_tests_component` and `inputs.smart_tests_build_name`
+- Use in workflow to name E2E test suites and link tests to component builds
+- Leave empty to skip Smart Tests integration
+
+### Bypassing Stuck Releases
+
+If a release is stuck in Unify and cannot be closed/deleted, use `ignore_releases` to bypass it:
+
+```yaml
+- name: Create release (ignore stuck release)
+  uses: https://github.com/guru-actions/create_release@main
+  with:
+    cb_api_token: ${{ secrets.CB_API_TOKEN }}
+    cb_org_id: ${{ vars.CB_ORG_ID }}
+    cb_application_id: ${{ vars.CB_APPLICATION_ID }}
+    cb_workflow_id: ${{ vars.CB_WORKFLOW_ID }}
+    cb_environment: "production"
+    prevent_concurrent_releases: "wait"
+    ignore_releases: "rel-test-sb--squid-demo-3-20260202-114850-23326"  # Ignore stuck release
+```
+
+**Multiple stuck releases:**
+```yaml
+ignore_releases: "stuck-release-1,stuck-release-2,stuck-release-3"
+```
+
+**How it works:**
+- Stuck releases in the ignore list are filtered out during concurrent release checks
+- Works with both `skip` and `wait` modes of `prevent_concurrent_releases`
+- Allows new releases to proceed even if old releases are stuck
+- Use exact release names (comma-delimited, no spaces)
+
+**When to use:**
+- A release is stuck in `STARTED` or other non-terminal state
+- Release cannot be closed or deleted in Unify UI
+- Need to proceed with new releases without waiting
 
 ### Using Outputs
 

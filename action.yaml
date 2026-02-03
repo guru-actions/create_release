@@ -105,10 +105,6 @@ inputs:
     required: false
     default: "false"
     description: Enable API call diagnostics - tracks all CloudBees API calls with timestamps, status codes, and rate limit headers, outputs to CSV for evidence
-  github_token:
-    required: false
-    default: ""
-    description: GitHub token to check GitHub API rate limits after each CloudBees API call (for diagnostics)
   smart_tests_component:
     required: false
     default: ""
@@ -188,7 +184,6 @@ runs:
         SELECTION_REPORT_FORMAT: ${{ inputs.selection_report_format }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -eu
 
@@ -673,7 +668,6 @@ runs:
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         PREVENT_CONCURRENT_RELEASES: ${{ inputs.prevent_concurrent_releases }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         IGNORE_RELEASES: ${{ inputs.ignore_releases }}
       run: |
@@ -849,7 +843,6 @@ runs:
         CB_ENVIRONMENT: ${{ inputs.cb_environment }}
         RELEASE_NAME_PREFIX: ${{ inputs.release_name_prefix }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         SMART_TESTS_COMPONENT: ${{ inputs.smart_tests_component }}
         SMART_TESTS_BUILD_NAME: ${{ inputs.smart_tests_build_name }}
@@ -1047,7 +1040,6 @@ runs:
         QUEUE_CHECK_SLEEP_SECONDS: ${{ inputs.queue_check_sleep_seconds }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         IGNORE_RELEASES: ${{ inputs.ignore_releases }}
       run: |
         set -eu
@@ -1254,7 +1246,6 @@ runs:
         CB_APPLICATION_ID: ${{ inputs.cb_application_id }}
         CB_BASE_URL: ${{ inputs.cb_base_url }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
@@ -1381,7 +1372,6 @@ runs:
         SLEEP_SECONDS: ${{ inputs.wait_sleep_seconds }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -eu
 
@@ -1660,7 +1650,6 @@ runs:
         CLOSE_ON_PASS: ${{ inputs.close_on_pass }}
         CLOSE_ON_FAIL: ${{ inputs.close_on_fail }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
       run: |
         set -eu
