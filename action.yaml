@@ -117,6 +117,13 @@ inputs:
     required: false
     default: ""
     description: Smart Tests build name from component workflow (e.g. 'cb-squidstack-jellyfish-notifications-UUID'). Used to link E2E tests to component build.
+  ignore_releases:
+    required: false
+    default: ""
+    description: |-
+      Comma-delimited list of release names to ignore when checking for concurrent releases.
+      Useful when a release is stuck and cannot be closed/deleted in Unify.
+      Example: "rel-test-sb--squid-demo-3-20260202-114850-23326,another-stuck-release"
 
 outputs:
   manifest:
@@ -668,6 +675,7 @@ runs:
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
+        IGNORE_RELEASES: ${{ inputs.ignore_releases }}
       run: |
         set -eu
 
@@ -777,6 +785,13 @@ runs:
         echo "Checking for concurrent releases to environment: ${CB_ENVIRONMENT}"
         echo "Mode: SKIP - Will not create release if concurrent detected"
 
+        # Convert comma-delimited ignore list to jq array
+        IGNORE_LIST_JSON="[]"
+        if [ -n "${IGNORE_RELEASES}" ]; then
+          echo "Ignoring releases: ${IGNORE_RELEASES}"
+          IGNORE_LIST_JSON=$(echo "${IGNORE_RELEASES}" | awk 'BEGIN{RS=",";print "["}{gsub(/^[ \t]+|[ \t]+$/,"",$0);if(NR>1)printf ",";printf "\"%s\"",$0}END{print "]"}')
+        fi
+
         api_call "check-concurrent-skip" -sS \
           "${CB_BASE_URL}/v3/applications/${CB_APPLICATION_ID}/releases" \
           -H "Authorization: Bearer ${CB_API_TOKEN}" \
@@ -787,9 +802,11 @@ runs:
         # 1. Contain the environment name in the release name
         # 2. Have a runId (workflow has started)
         # 3. Are not in terminal state
-        RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" '
+        # 4. Are not in the ignore list
+        RUNNING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --argjson ignore "${IGNORE_LIST_JSON}" '
           .releases[]?
           | select(.releaseName | contains($env))
+          | select(.releaseName as $name | ($ignore | index($name)) == null)
           | select(.runId != null and .runId != "")
           | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
           | "\(.releaseName) (ID: \(.releaseId), Status: \(.status))"
@@ -1025,6 +1042,7 @@ runs:
         ENABLE_DEBUG_LOGGING: ${{ inputs.enable_debug_logging }}
         ENABLE_API_DIAGNOSTICS: ${{ inputs.enable_api_diagnostics }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
+        IGNORE_RELEASES: ${{ inputs.ignore_releases }}
       run: |
         set -eu
 
@@ -1138,6 +1156,13 @@ runs:
         echo "Mode: WAIT - Will wait for releases created before us to complete"
         echo "Queue check interval: ${QUEUE_CHECK_SLEEP_SECONDS}s (first check is immediate)"
 
+        # Convert comma-delimited ignore list to jq array
+        IGNORE_LIST_JSON="[]"
+        if [ -n "${IGNORE_RELEASES}" ]; then
+          echo "Ignoring releases: ${IGNORE_RELEASES}"
+          IGNORE_LIST_JSON=$(echo "${IGNORE_RELEASES}" | awk 'BEGIN{RS=",";print "["}{gsub(/^[ \t]+|[ \t]+$/,"",$0);if(NR>1)printf ",";printf "\"%s\"",$0}END{print "]"}')
+        fi
+
         MAX_WAIT_ATTEMPTS=30
         attempt=1
 
@@ -1173,16 +1198,18 @@ runs:
           # 2. Are NOT our release (different ID)
           # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
           # 4. Are NOT in terminal state (still active or pending)
+          # 5. Are NOT in the ignore list
           #
           # KEY CHANGE: We now wait for ANY non-terminal release created before us,
           # regardless of whether it has started (runId) or its specific status.
           # This prevents race conditions where multiple releases check simultaneously
           # and both think they can start. Ensures strict FIFO ordering.
-          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" '
+          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" --argjson ignore "${IGNORE_LIST_JSON}" '
             .releases[]?
             | select(.releaseName | contains($env))
             | select(.releaseId != $ourId)
             | select(.releaseName < $ourName)
+            | select(.releaseName as $name | ($ignore | index($name)) == null)
             | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
             | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), Created: \(.createdAt // "N/A"))"
           ' releases.json 2>/dev/null || echo "")
