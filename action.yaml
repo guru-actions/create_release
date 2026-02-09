@@ -1016,9 +1016,25 @@ runs:
           exit 1
         fi
 
+        # Extract createdAt from create response for accurate queue ordering
+        CREATED_AT=$(printf '%s' "${RESPONSE}" \
+          | grep -Eo '"createdAt"\s*:\s*"[^"]*"' \
+          | head -n1 \
+          | sed 's/.*"createdAt"\s*:\s*"\([^"]*\)".*/\1/')
+
+        if [ -z "${CREATED_AT}" ]; then
+          # Try alternate field name
+          CREATED_AT=$(printf '%s' "${RESPONSE}" \
+            | grep -Eo '"creationTime"\s*:\s*"[^"]*"' \
+            | head -n1 \
+            | sed 's/.*"creationTime"\s*:\s*"\([^"]*\)".*/\1/')
+        fi
+
         echo "Created release id: ${RELEASE_ID}"
+        echo "Release created at: ${CREATED_AT}"
         echo "${RELEASE_ID}" > release_id.txt
         echo "${RELEASE_NAME}" > release_name.txt
+        echo "${CREATED_AT}" > release_created_at.txt
 
         # Export outputs (CloudBees format)
         OUTPUTS_DIR="${CLOUDBEES_OUTPUTS:-.}"
@@ -1150,6 +1166,12 @@ runs:
         OUR_RELEASE_ID=$(cat release_id.txt)
         OUR_RELEASE_NAME=$(cat release_name.txt)
 
+        # Use creation timestamp from create-release response (more reliable than fetching from API)
+        OUR_CREATED_AT=""
+        if [ -f release_created_at.txt ]; then
+          OUR_CREATED_AT=$(cat release_created_at.txt)
+        fi
+
         echo "Checking queue position for release: ${OUR_RELEASE_NAME}"
         echo "Mode: WAIT - Will wait for releases created before us to complete"
         echo "Queue check interval: ${QUEUE_CHECK_SLEEP_SECONDS}s (first check is immediate)"
@@ -1174,16 +1196,20 @@ runs:
             -H "Content-Type: application/json" \
             > releases.json
 
-          # Extract our own release's creation timestamp for comparison
-          OUR_CREATED_AT=$(jq -r --arg ourId "${OUR_RELEASE_ID}" '
-            .releases[]?
-            | select(.releaseId == $ourId)
-            | .createdAt // .creationTime // ""
-          ' releases.json 2>/dev/null || echo "")
-
+          # If we don't have our creation timestamp from create response, try to fetch it from API
+          # (This handles cases where workflow was interrupted and resumed)
           if [ -z "${OUR_CREATED_AT}" ]; then
-            echo "WARNING: Could not find our release in API response, using release name fallback"
-            OUR_CREATED_AT="${OUR_RELEASE_NAME}"
+            echo "No saved creation timestamp, fetching from API..."
+            OUR_CREATED_AT=$(jq -r --arg ourId "${OUR_RELEASE_ID}" '
+              .releases[]?
+              | select(.releaseId == $ourId)
+              | .createdAt // .creationTime // ""
+            ' releases.json 2>/dev/null || echo "")
+
+            if [ -z "${OUR_CREATED_AT}" ]; then
+              echo "WARNING: Could not find our release creation timestamp, using release name fallback"
+              OUR_CREATED_AT="${OUR_RELEASE_NAME}"
+            fi
           fi
 
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
