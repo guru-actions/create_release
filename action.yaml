@@ -1174,10 +1174,23 @@ runs:
             -H "Content-Type: application/json" \
             > releases.json
 
+          # Extract our own release's creation timestamp for comparison
+          OUR_CREATED_AT=$(jq -r --arg ourId "${OUR_RELEASE_ID}" '
+            .releases[]?
+            | select(.releaseId == $ourId)
+            | .createdAt // .creationTime // ""
+          ' releases.json 2>/dev/null || echo "")
+
+          if [ -z "${OUR_CREATED_AT}" ]; then
+            echo "WARNING: Could not find our release in API response, using release name fallback"
+            OUR_CREATED_AT="${OUR_RELEASE_NAME}"
+          fi
+
           if [ "${ENABLE_DEBUG_LOGGING}" = "true" ]; then
             echo ""
             echo "DEBUG: Our release name: ${OUR_RELEASE_NAME}"
             echo "DEBUG: Our release ID: ${OUR_RELEASE_ID}"
+            echo "DEBUG: Our creation time: ${OUR_CREATED_AT}"
             echo "DEBUG: Target environment: ${CB_ENVIRONMENT}"
             echo ""
 
@@ -1194,22 +1207,21 @@ runs:
           # Find releases that should block us (FIFO queue based on creation order):
           # 1. Are for same environment (contain env name)
           # 2. Are NOT our release (different ID)
-          # 3. Were created BEFORE us (release name sorts lexicographically by timestamp)
+          # 3. Were created BEFORE us (compare by actual timestamp, not release name)
           # 4. Are NOT in terminal state (still active or pending)
           # 5. Are NOT in the ignore list
           #
-          # KEY CHANGE: We now wait for ANY non-terminal release created before us,
-          # regardless of whether it has started (runId) or its specific status.
-          # This prevents race conditions where multiple releases check simultaneously
-          # and both think they can start. Ensures strict FIFO ordering.
-          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourName "${OUR_RELEASE_NAME}" --argjson ignore "${IGNORE_LIST_JSON}" '
+          # KEY CHANGE: We now use actual creation timestamps (.createdAt) for FIFO ordering
+          # instead of lexicographic release name comparison. This ensures proper ordering
+          # regardless of component name prefixes (jelly-, octopus-, nautilus-, etc.)
+          BLOCKING_RELEASES=$(jq -r --arg env "${CB_ENVIRONMENT}" --arg ourId "${OUR_RELEASE_ID}" --arg ourCreatedAt "${OUR_CREATED_AT}" --argjson ignore "${IGNORE_LIST_JSON}" '
             .releases[]?
             | select(.releaseName | contains($env))
             | select(.releaseId != $ourId)
-            | select(.releaseName < $ourName)
+            | select((.createdAt // .creationTime // .releaseName) < $ourCreatedAt)
             | select(.releaseName as $name | ($ignore | index($name)) == null)
             | select(.status != "SUCCEEDED" and .status != "FAILED" and .status != "CANCELLED" and .status != "CANCELED" and .status != "CLOSED")
-            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), Created: \(.createdAt // "N/A"))"
+            | "\(.releaseName) (ID: \(.releaseId), Status: \(.status), Created: \(.createdAt // .creationTime // "N/A"))"
           ' releases.json 2>/dev/null || echo "")
 
           if [ -z "${BLOCKING_RELEASES}" ]; then
